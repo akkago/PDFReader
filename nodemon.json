@@ -1,0 +1,9 @@
+{
+  "watch": ["server"],
+  "ext": "js,json",
+  "ignore": ["node_modules", "client", "uploads"],
+  "env": {
+    "NODE_OPTIONS": "--no-deprecation"
+  },
+  "exec": "node --no-deprecation server/index.js"
+} 
