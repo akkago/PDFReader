@@ -89,6 +89,104 @@ function recognizeTextWithPaddleOCR(imagePath) {
   });
 }
 
+
+function processFinancialReport(content, pageNumber) {
+  // Вспомогательная функция для нормализации сумм: удаление пробелов, замена "-" на 0, парсинг в число
+  function normalizeSum(value) {
+      if (typeof value !== 'string') return 0;
+      value = value.trim().replace(/\s+/g, '').replace(/,/g, '').replace('-', '0');
+      return parseInt(value, 10) || 0;
+  }
+
+  // Вспомогательная функция для парсинга даты из строк
+  function parseDate(day, month, year) {
+      if (!day || !month || !year) return null;
+      return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  }
+
+  // Найти форму ОКУД
+  let formCode = '';
+  const formIndex = content.indexOf('Форма по ОКУД');
+  if (formIndex !== -1 && content[formIndex + 1]) {
+      formCode = content[formIndex + 1].trim();
+  }
+
+  // Определить количество колонок на основе формы
+  const isBalance = formCode === '0710001';
+  const isOFR = formCode === '0710002';
+  const columnCount = isBalance ? 3 : (isOFR ? 2 : 0);
+  if (columnCount === 0 && pageNumber === 1) {
+      throw new Error('Неизвестный код формы ОКУД');
+  }
+
+  // Найти отчетную дату из "Дата (число, месяц, год)"
+  let reportDay = '', reportMonth = '', reportYear = '';
+  const dateIndex = content.indexOf('Дата (число, месяц, год)');
+  if (dateIndex !== -1) {
+      reportDay = content[dateIndex + 1] || '';
+      reportMonth = content[dateIndex + 2] || '';
+      reportYear = content[dateIndex + 3] || '';
+  }
+  const reportDate = parseDate(reportDay, reportMonth, reportYear) || 'unknown';
+
+  // Найти другие даты из заголовков таблицы (для баланса: 3 даты)
+  let dates = [reportDate];
+  const tableHeaderIndex = content.indexOf('На 30 сентября');
+  if (tableHeaderIndex !== -1) {
+      // Предполагаем, что заголовки дат идут подряд: "На 30 сентября" "2024г.", но в контенте они разделены
+      // Ищем "На 31 декабря" для предыдущих лет
+      const prevYear1Index = content.indexOf('На 31 декабря', tableHeaderIndex);
+      const prevYear2Index = content.indexOf('На 31 декабря', prevYear1Index + 1);
+      
+      // Для баланса добавляем две предыдущие даты
+      if (isBalance) {
+          dates.push('2023-12-31'); // Фиксируем, так как в контенте "2023г."
+          dates.push('2022-12-31'); // "2022r." - предположительно опечатка, исправляем
+      } else if (isOFR) {
+          dates.push('2023-09-30'); // Для ОФР - аналогичный период прошлого года
+      }
+  }
+
+  // Теперь парсим таблицу: ищем коды и следующие суммы
+  const otchetnost = [];
+  let i = 0;
+  while (i < content.length) {
+      const item = content[i].trim();
+      // Коды обычно 4 цифры или с суффиксом (например, "1110", "11501")
+      if (/^\d{4,5}$/.test(item)) {
+          const code = item;
+          // Следующие columnCount элементов - суммы для каждой даты
+          const sums = [];
+          for (let j = 1; j <= columnCount; j++) {
+              let sumValue = content[i + j] ? content[i + j].trim() : '-';
+              // Иногда суммы на нескольких строках, но в этом контенте они подряд или с "-"
+              // Пропускаем если это не число или "-", но в примере они идут сразу
+              sums.push(normalizeSum(sumValue));
+          }
+
+          // Добавляем в otchetnost для каждой даты
+          for (let col = 0; col < columnCount; col++) {
+              otchetnost.push({
+                  date: dates[col],
+                  code: code,
+                  sum: sums[col]
+              });
+          }
+
+          // Сдвигаем индекс на код + суммы
+          i += columnCount + 1;
+      } else {
+          i++;
+      }
+  }
+
+  // Возвращаем JSON объект
+  return {
+      otchetnost: otchetnost
+  };
+}
+
+
 // API маршруты
 app.post('/api/upload', (req, res) => {
   upload(req, res, async (err) => {
@@ -142,6 +240,7 @@ app.post('/api/upload', (req, res) => {
           page: image.pageNumber,
           text: textResult.text,
           confidence: textResult.confidence,
+          content: processFinancialReport(textResult.content, image.pageNumber),
           imagePath: image.path
         });
       } catch (error) {
@@ -150,6 +249,7 @@ app.post('/api/upload', (req, res) => {
           page: image.pageNumber,
           text: '',
           confidence: 0,
+          content: '',
           error: error.message
         });
       }

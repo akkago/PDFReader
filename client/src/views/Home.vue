@@ -164,6 +164,18 @@
                                 <v-list-item-title>Символов</v-list-item-title>
                                 <v-list-item-subtitle>{{ result.text.length }}</v-list-item-subtitle>
                               </v-list-item>
+
+                              <v-list-item v-if="result.content">
+                                <v-list-item-title>Содержимое</v-list-item-title>
+                                <div
+                                  v-if="result.text"
+                                  class="text-body-1"
+                                  style="white-space: pre-wrap; line-height: 1.6;"
+                                >
+                                  {{ result.content }}
+                                </div>
+                                <!-- <v-list-item-subtitle>{{ result.content }}</v-list-item-subtitle> -->
+                              </v-list-item>
                             </v-list>
                           </v-card-text>
                         </v-card>

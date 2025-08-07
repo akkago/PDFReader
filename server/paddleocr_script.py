@@ -125,6 +125,7 @@ def recognize_text(image_path, output_mode=0):
 
         return {
             "text": full_text.strip(),
+            "content": txts,        
             "confidence": float(avg_confidence),
             "words": tdata,
             "word_count": word_count,
@@ -138,6 +139,7 @@ def recognize_text(image_path, output_mode=0):
         logging.error(f"error recognizing: {str(e)}\n{error_details}")
         return {
             "text": "",
+            "content": "",
             "confidence": 0.0,
             "words": [],
             "word_count": 0,
