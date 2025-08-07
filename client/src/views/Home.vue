@@ -55,6 +55,49 @@
       </v-row>
     </div>
 
+    <!-- Отображение данных -->
+    <div v-if="content || (results.length > 0 && results.some(r => r.content))">
+      <v-row justify="center">
+        <v-col cols="12" lg="10">
+          <!-- Переключатель режимов просмотра -->
+          <v-card elevation="2" class="mb-4">
+            <v-card-text class="pa-4">
+              <v-btn-toggle
+                v-model="contentViewMode"
+                mandatory
+                color="primary"
+                class="mb-2"
+              >
+                <v-btn value="processed" prepend-icon="mdi-chart-line">
+                  Обработанные данные
+                </v-btn>
+                <v-btn value="raw" prepend-icon="mdi-text-box">
+                  Сырые данные
+                </v-btn>
+              </v-btn-toggle>
+              
+              <div class="text-caption text-muted">
+                {{ contentViewMode === 'processed' 
+                  ? 'Показаны структурированные финансовые данные' 
+                  : 'Показаны исходные строки распознанного текста' }}
+              </div>
+            </v-card-text>
+          </v-card>
+
+          <!-- Обработанные данные -->
+          <ContentDisplay 
+            v-if="contentViewMode === 'processed' && content" 
+            :content="content" 
+          />
+
+          <!-- Сырые данные -->
+          <RawContentDisplay 
+            v-if="contentViewMode === 'raw' && results.length > 0"
+            :raw-content="getRawContent()"
+          />
+        </v-col>
+      </v-row>
+    </div>
     <!-- Результаты распознавания -->
     <div v-if="results.length > 0">
       <v-row justify="center">
@@ -165,17 +208,6 @@
                                 <v-list-item-subtitle>{{ result.text.length }}</v-list-item-subtitle>
                               </v-list-item>
 
-                              <v-list-item v-if="result.content">
-                                <v-list-item-title>Содержимое</v-list-item-title>
-                                <div
-                                  v-if="result.text"
-                                  class="text-body-1"
-                                  style="white-space: pre-wrap; line-height: 1.6;"
-                                >
-                                  {{ result.content }}
-                                </div>
-                                <!-- <v-list-item-subtitle>{{ result.content }}</v-list-item-subtitle> -->
-                              </v-list-item>
                             </v-list>
                           </v-card-text>
                         </v-card>
@@ -195,19 +227,25 @@
 <script>
 import axios from 'axios'
 import Statistics from '../components/Statistics.vue'
+import ContentDisplay from '../components/ContentDisplay.vue'
+import RawContentDisplay from '../components/RawContentDisplay.vue'
 
 export default {
   name: 'Home',
   components: {
-    Statistics
+    Statistics,
+    ContentDisplay,
+    RawContentDisplay
   },
   data() {
     return {
       selectedFile: null,
       loading: false,
       error: '',
+      content: '',
       results: [],
       activeTab: 0,
+      contentViewMode: 'processed', // 'processed' или 'raw'
       fileRules: [
         value => {
           if (!value) return 'Файл обязателен'
@@ -222,6 +260,7 @@ export default {
       this.error = ''
       this.results = []
       this.activeTab = 0
+      this.contentViewMode = 'processed'
     },
     
     async uploadFile() {
@@ -242,7 +281,8 @@ export default {
         })
         
         this.results = response.data.results
-        console.log('console.log' +this.results)
+        this.content = response.data.content
+        // console.log('console.log' +this.results)
 
         this.activeTab = 0
         
@@ -264,6 +304,20 @@ export default {
       if (confidence >= 0.8) return 'success'
       if (confidence >= 0.6) return 'warning'
       return 'error'
+    },
+    
+    getRawContent() {
+      if (!this.results || this.results.length === 0) return []
+      
+      // Собираем все content из всех страниц
+      const allContent = []
+      this.results.forEach(result => {
+        if (result.content && Array.isArray(result.content)) {
+          allContent.push(...result.content)
+        }
+      })
+      
+      return allContent
     }
   }
 }
