@@ -174,7 +174,20 @@ function extractDates(allLines, columns) {
 
 function cleanSum(str) {
   if (!str || str.trim() === '-' || str.trim() === '' || str.trim() === '.') return 0;
-  return parseInt(str.replace(/\s/g, ''), 10) || 0;
+  
+  // Очищаем строку от всех символов кроме цифр
+  const cleanStr = str.replace(/[^\d]/g, '');
+  
+  // Если после очистки ничего не осталось, возвращаем 0
+  if (!cleanStr) return 0;
+  
+  // Преобразуем в число
+  const num = parseInt(cleanStr, 10);
+  
+  // Проверяем, что это валидное число
+  if (isNaN(num)) return 0;
+  
+  return num;
 }
 
 function parsePageContent(pageContents) {
@@ -220,133 +233,104 @@ function parsePageContent(pageContents) {
     console.log('Предполагаем колонок:', columns);
   }
 
-  // Шаг 2: Извлечь даты (более гибкий подход)
+  // Шаг 2: Извлечь даты из заголовков таблицы
   const dates = [];
   
-  // Метод 1: Ищем строки, начинающиеся с "На "
-  const dateHeaders = allLines.filter(line => line.startsWith('На '));
-  console.log('Найдены заголовки дат (На):', dateHeaders);
+  // Ищем строки с датами в заголовках таблицы
+  const datePatterns = [
+    /На (\d{1,2}) (\w+)/,           // "На 30 сентября"
+    /(\d{1,2}) (\w+)/,              // "30 сентября"
+    /(\d{1,2})\.(\d{1,2})\.(\d{4})/, // "30.09.2024"
+    /(\d{1,2})\/(\d{1,2})\/(\d{4})/  // "30/09/2024"
+  ];
   
-  // Метод 2: Ищем строки с датами в формате "дд месяц"
-  const datePatterns = allLines.filter(line => line.match(/\d{1,2}\s+\w+/));
-  console.log('Найдены паттерны дат:', datePatterns);
-  
-  // Метод 3: Ищем годы
+  // Ищем годы в документе
   const yearLines = allLines.filter(line => /^\d{4}[гr.]*$/.test(line));
   console.log('Найдены годы:', yearLines);
   
-  // Метод 4: Ищем даты в формате "дд.мм.гггг" или "дд/мм/гггг"
-  const dateFormats = allLines.filter(line => 
-    line.match(/\d{1,2}[.\/]\d{1,2}[.\/]\d{4}/) ||
-    line.match(/\d{1,2}\s+\w+\s+\d{4}/)
-  );
-  console.log('Найдены даты в форматах:', dateFormats);
-  
-  // Метод 5: Ищем даты в заголовках таблицы (строки с "На" и годами)
-  const tableHeaders = [];
-  for (let i = 0; i < allLines.length - 1; i++) {
+  // Ищем строки с датами
+  const foundDates = [];
+  for (let i = 0; i < allLines.length; i++) {
     const line = allLines[i];
-    const nextLine = allLines[i + 1];
     
-    // Если текущая строка содержит "На" и следующая содержит год
-    if (line.includes('На') && /^\d{4}[гr.]*$/.test(nextLine)) {
-      tableHeaders.push(line + ' ' + nextLine);
-    }
-  }
-  console.log('Найдены заголовки таблицы:', tableHeaders);
-  
-  // Объединяем все найденные даты
-  const allDateCandidates = [...dateHeaders, ...datePatterns, ...dateFormats, ...tableHeaders];
-  
-  // Удаляем дубликаты
-  const uniqueCandidates = [...new Set(allDateCandidates)];
-  console.log('Уникальные кандидаты дат:', uniqueCandidates);
-  
-  for (let j = 0; j < columns && j < uniqueCandidates.length; j++) {
-    const candidate = uniqueCandidates[j];
-    let year = '2023'; // По умолчанию
-    
-    // Ищем год рядом с датой
-    const yearIndex = allLines.findIndex((line, idx) => 
-      /^\d{4}[гr.]*$/.test(line) && Math.abs(idx - allLines.indexOf(candidate)) <= 5
-    );
-    if (yearIndex !== -1) {
-      year = allLines[yearIndex].replace(/[^0-9]/g, '');
-    }
-    
-    // Парсим дату - пробуем разные форматы
-    let parsed = null;
-    
-    // Формат "На дд месяц"
-    let match = candidate.match(/На (\d{1,2}) (\w+)/);
-    if (match) {
-      parsed = parseDate(match[1], match[2], year);
-    }
-    
-    // Формат "дд месяц"
-    if (!parsed) {
-      match = candidate.match(/(\d{1,2}) (\w+)/);
+    // Проверяем все паттерны дат
+    for (const pattern of datePatterns) {
+      const match = line.match(pattern);
       if (match) {
-        parsed = parseDate(match[1], match[2], year);
+        let day, month, year;
+        
+        if (pattern.source.includes('\\d{4}')) {
+          // Формат с годом в строке
+          day = match[1];
+          month = match[2];
+          year = match[3];
+        } else {
+          // Формат без года, ищем год рядом
+          day = match[1];
+          month = match[2];
+          
+          // Ищем год в следующих 5 строках
+          for (let j = i + 1; j < Math.min(i + 6, allLines.length); j++) {
+            const yearMatch = allLines[j].match(/^(\d{4})[гr.]*$/);
+            if (yearMatch) {
+              year = yearMatch[1];
+              break;
+            }
+          }
+          
+          // Если год не найден, используем 2024 по умолчанию
+          if (!year) {
+            year = '2024';
+          }
+        }
+        
+        const parsed = parseDate(day, month, year);
+        if (parsed) {
+          foundDates.push({
+            date: parsed,
+            line: line,
+            index: i
+          });
+        }
+        break;
       }
-    }
-    
-    // Формат "дд.мм.гггг"
-    if (!parsed) {
-      match = candidate.match(/(\d{1,2})[.\/](\d{1,2})[.\/](\d{4})/);
-      if (match) {
-        const day = match[1];
-        const month = match[2];
-        const year = match[3];
-        parsed = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-      }
-    }
-    
-    // Формат "дд месяц гггг"
-    if (!parsed) {
-      match = candidate.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
-      if (match) {
-        parsed = parseDate(match[1], match[2], match[3]);
-      }
-    }
-    
-    // Формат "На дд месяц гггг" (когда год уже в строке)
-    if (!parsed) {
-      match = candidate.match(/На (\d{1,2})\s+(\w+)\s+(\d{4})/);
-      if (match) {
-        parsed = parseDate(match[1], match[2], match[3]);
-      }
-    }
-    
-    if (parsed) {
-      dates.push(parsed);
-      console.log('Добавлена дата:', parsed, 'из строки:', candidate);
     }
   }
   
-  // Если даты не найдены, создаем фиктивные даты с разными месяцами
-  if (dates.length === 0) {
-    console.log('Даты не найдены, создаем фиктивные даты');
-    const currentYear = new Date().getFullYear();
-    const months = ['03', '06', '09', '12']; // Квартальные даты
-    for (let i = 0; i < columns; i++) {
-      const month = months[i] || '12';
-      dates.push(`${currentYear}-${month}-31`);
+  console.log('Найденные даты:', foundDates);
+  
+  // Берем первые columns уникальных дат
+  const uniqueDates = [];
+  for (const foundDate of foundDates) {
+    if (!uniqueDates.some(d => d.date === foundDate.date)) {
+      uniqueDates.push(foundDate);
+      if (uniqueDates.length >= columns) break;
     }
   }
   
-  // Если найдена только одна дата, создаем дополнительные на основе найденной
-  if (dates.length === 1 && columns > 1) {
-    console.log('Найдена только одна дата, создаем дополнительные');
-    const baseDate = new Date(dates[0]);
-    const baseYear = baseDate.getFullYear();
-    
-    for (let i = 1; i < columns; i++) {
-      // Создаем даты с разницей в 3 месяца
-      const newDate = new Date(baseYear, baseDate.getMonth() - (i * 3), baseDate.getDate());
+  // Добавляем найденные даты
+  for (const uniqueDate of uniqueDates) {
+    dates.push(uniqueDate.date);
+    console.log('Добавлена дата:', uniqueDate.date, 'из строки:', uniqueDate.line);
+  }
+  
+  // Если дат не хватает, создаем дополнительные
+  while (dates.length < columns) {
+    if (dates.length > 0) {
+      // Создаем дату на 3 месяца раньше последней
+      const lastDate = new Date(dates[dates.length - 1]);
+      const newDate = new Date(lastDate.getFullYear(), lastDate.getMonth() - 3, lastDate.getDate());
       const newDateStr = newDate.toISOString().split('T')[0];
       dates.push(newDateStr);
       console.log('Добавлена дополнительная дата:', newDateStr);
+    } else {
+      // Если нет дат вообще, создаем фиктивные
+      const currentYear = new Date().getFullYear();
+      const months = ['09', '12', '03']; // Сентябрь, декабрь, март
+      const month = months[dates.length] || '12';
+      const day = month === '02' ? '28' : '31';
+      dates.push(`${currentYear}-${month}-${day}`);
+      console.log('Добавлена фиктивная дата:', `${currentYear}-${month}-${day}`);
     }
   }
   
@@ -378,8 +362,26 @@ function parsePageContent(pageContents) {
   while (i < allLines.length && processedCodes < 50) { // Ограничиваем количество кодов
     const line = allLines[i];
 
+    // Функция для проверки, является ли строка кодом
+    function isCode(line) {
+      // Код должен быть 4-5 цифр
+      if (!/^\d{4,5}$/.test(line)) return false;
+      
+      // Исключаем числа, которые скорее всего являются суммами
+      const num = parseInt(line, 10);
+      if (num < 1000 || num > 99999) return false; // Коды обычно 4-5 цифр
+      
+      // Дополнительная проверка: если число выглядит как сумма (например, 5000), 
+      // то это скорее всего не код, а значение
+      if (num === 5000 || num === 1000 || num === 2000 || num === 3000 || num === 4000) {
+        return false;
+      }
+      
+      return true;
+    }
+    
     // Если это код (4-5 цифр, возможно с доп. символами, но в основном цифры)
-    if (/^\d{4,5}$/.test(line)) {
+    if (isCode(line)) {
       const code = line;
       processedCodes++;
       console.log('Обрабатываем код:', code);
@@ -391,14 +393,13 @@ function parsePageContent(pageContents) {
       // Собираем следующие columns сумм
       const sums = [];
       i++;
-      let sumBuffer = '';
       let attempts = 0;
       
-      while (sums.length < columns && i < allLines.length && attempts < 10) {
+      while (sums.length < columns && i < allLines.length && attempts < 15) {
         const nextLine = allLines[i];
         attempts++;
         
-        if (/^\d{4,5}$/.test(nextLine)) {
+        if (isCode(nextLine)) {
           // Следующий код - откат
           i--;
           break;
@@ -406,14 +407,47 @@ function parsePageContent(pageContents) {
           // Начало нового названия или раздела - прервать
           break;
         } else if (/\d/.test(nextLine) || nextLine === '-' || nextLine === '.') {
-          // Собираем буфер для суммы (т.к. суммы могут быть разбиты, напр. "37 992")
-          sumBuffer += ' ' + nextLine;
-          if (sumBuffer.trim().match(/^\d[\d\s]+$/)) {
-            // Если буфер выглядит как полная сумма, добавляем
-            const sum = cleanSum(sumBuffer.trim());
-            sums.push(sum);
-            console.log('Добавлена сумма:', sum, 'из буфера:', sumBuffer.trim());
-            sumBuffer = '';
+          // Сначала пробуем извлечь полные суммы из строки
+          const fullLine = nextLine.trim();
+          
+          // Ищем числа в строке (включая числа с пробелами)
+          const numberMatches = fullLine.match(/\d[\d\s]*/g);
+          
+          if (numberMatches) {
+            for (const match of numberMatches) {
+              if (sums.length >= columns) break;
+              
+              // Очищаем от пробелов и других символов
+              const cleanNumber = match.replace(/\s/g, '').replace(/[^\d]/g, '');
+              
+              if (cleanNumber && cleanNumber.length > 0) {
+                const sum = parseInt(cleanNumber, 10);
+                if (!isNaN(sum) && sum > 0) {
+                  sums.push(sum);
+                  console.log('Добавлена сумма:', sum, 'из строки:', match);
+                }
+              }
+            }
+          }
+          
+          // Если не нашли полные числа, пробуем разбить на части
+          if (sums.length === 0) {
+            const parts = nextLine.split(/\s+/).filter(part => part.trim());
+            
+            for (const part of parts) {
+              if (sums.length >= columns) break;
+              
+              // Очищаем часть от лишних символов
+              const cleanPart = part.replace(/[^\d\-\.]/g, '').trim();
+              
+              if (cleanPart && (/\d/.test(cleanPart) || cleanPart === '-' || cleanPart === '.')) {
+                const sum = cleanSum(cleanPart);
+                if (sum > 0 || cleanPart === '-' || cleanPart === '.') {
+                  sums.push(sum);
+                  console.log('Добавлена сумма:', sum, 'из части:', cleanPart);
+                }
+              }
+            }
           }
         }
         i++;
@@ -436,7 +470,7 @@ function parsePageContent(pageContents) {
       }
     } else {
       // Собираем название
-      if (!/^\d{4,5}$/.test(line) && line !== 'Код' && !line.startsWith('На ')) {
+      if (!isCode(line) && line !== 'Код' && !line.startsWith('На ')) {
         currentName.push(line);
       }
     }
