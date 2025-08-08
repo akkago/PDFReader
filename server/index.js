@@ -355,126 +355,146 @@ function parsePageContent(pageContents) {
   console.log('Начало таблицы:', tableStart);
 
   const otchetnost = [];
-  let i = tableStart;
-  let currentName = [];
   let processedCodes = 0;
   
-  while (i < allLines.length && processedCodes < 50) { // Ограничиваем количество кодов
-    const line = allLines[i];
-
-    // Функция для проверки, является ли строка кодом
-    function isCode(line) {
-      // Код должен быть 4-5 цифр
-      if (!/^\d{4,5}$/.test(line)) return false;
-      
-      // Исключаем числа, которые скорее всего являются суммами
-      const num = parseInt(line, 10);
-      if (num < 1000 || num > 99999) return false; // Коды обычно 4-5 цифр
-      
-      // Дополнительная проверка: если число выглядит как сумма (например, 5000), 
-      // то это скорее всего не код, а значение
-      if (num === 5000 || num === 1000 || num === 2000 || num === 3000 || num === 4000) {
-        return false;
+  // Функция для проверки, является ли строка кодом
+  function isCode(line, allLines, lineIndex) {
+    // Код должен быть 4-5 цифр
+    if (!/^\d{4,5}$/.test(line)) return false;
+    
+    const num = parseInt(line, 10);
+    if (num < 1000 || num > 99999) return false;
+    
+    // Проверяем, есть ли русский текст слева от кода (в предыдущих строках)
+    let hasRussianTextBefore = false;
+    
+    // Ищем в предыдущих 10 строках
+    for (let j = Math.max(0, lineIndex - 10); j < lineIndex; j++) {
+      const prevLine = allLines[j];
+      if (prevLine && prevLine.trim()) {
+        // Проверяем, содержит ли строка русские буквы
+        if (/[а-яё]/i.test(prevLine)) {
+          // Исключаем строки, которые не являются описанием
+          if (!prevLine.match(/^\d+$/) && 
+              !prevLine.includes('Код') && 
+              !prevLine.includes('код') &&
+              !prevLine.includes('АКТИВ') &&
+              !prevLine.includes('ПАССИВ') &&
+              !prevLine.startsWith('На ') &&
+              !prevLine.match(/^\d{4}[гr.]*$/)) {
+            hasRussianTextBefore = true;
+            break;
+          }
+        }
       }
-      
-      return true;
     }
     
-    // Если это код (4-5 цифр, возможно с доп. символами, но в основном цифры)
-    if (isCode(line)) {
-      const code = line;
-      processedCodes++;
-      console.log('Обрабатываем код:', code);
-
-      // Название - предыдущие строки (не используем, но можно добавить если нужно)
-      const name = currentName.join(' ').trim();
-      currentName = [];
-
-      // Собираем следующие columns сумм
-      const sums = [];
-      i++;
-      let attempts = 0;
-      
-      while (sums.length < columns && i < allLines.length && attempts < 15) {
-        const nextLine = allLines[i];
-        attempts++;
+    // Кодом считается только число, если слева есть русский текст
+    return hasRussianTextBefore;
+  }
+  
+  // Функция для извлечения сумм из строки
+  function extractSumsFromLine(line) {
+    const sums = [];
+    
+    // Ищем числа в строке (включая числа с пробелами)
+    const numberMatches = line.match(/\d[\d\s]*/g);
+    
+    if (numberMatches) {
+      for (const match of numberMatches) {
+        // Очищаем от пробелов и других символов
+        const cleanNumber = match.replace(/\s/g, '').replace(/[^\d]/g, '');
         
-        if (isCode(nextLine)) {
-          // Следующий код - откат
-          i--;
-          break;
-        } else if (nextLine.match(/^[A-ZА-ЯIV.]+$/i) || nextLine.includes('том числе') || nextLine === 'в') {
-          // Начало нового названия или раздела - прервать
-          break;
-        } else if (/\d/.test(nextLine) || nextLine === '-' || nextLine === '.') {
-          // Сначала пробуем извлечь полные суммы из строки
-          const fullLine = nextLine.trim();
-          
-          // Ищем числа в строке (включая числа с пробелами)
-          const numberMatches = fullLine.match(/\d[\d\s]*/g);
-          
-          if (numberMatches) {
-            for (const match of numberMatches) {
-              if (sums.length >= columns) break;
-              
-              // Очищаем от пробелов и других символов
-              const cleanNumber = match.replace(/\s/g, '').replace(/[^\d]/g, '');
-              
-              if (cleanNumber && cleanNumber.length > 0) {
-                const sum = parseInt(cleanNumber, 10);
-                if (!isNaN(sum) && sum > 0) {
-                  sums.push(sum);
-                  console.log('Добавлена сумма:', sum, 'из строки:', match);
-                }
-              }
-            }
+        if (cleanNumber && cleanNumber.length > 0) {
+          const sum = parseInt(cleanNumber, 10);
+          if (!isNaN(sum) && sum > 0) {
+            sums.push(sum);
+          }
+        }
+      }
+    }
+    
+    return sums;
+  }
+  
+  // Новый алгоритм парсинга таблицы с правильной логикой
+  let currentCode = null;
+  let currentSums = [];
+  
+  // Создаем структуру для хранения данных по кодам
+  const codeData = new Map();
+  
+  for (let i = tableStart; i < allLines.length && processedCodes < 50; i++) {
+    const line = allLines[i];
+    
+    // Проверяем, является ли строка кодом (4-5 цифр)
+    if (/^\d{4,5}$/.test(line)) {
+      const num = parseInt(line, 10);
+      if (num >= 1000 && num <= 99999) {
+        // Проверяем, есть ли русский текст перед кодом
+        let hasRussianTextBefore = false;
+        for (let j = Math.max(0, i - 10); j < i; j++) {
+          const prevLine = allLines[j];
+          if (prevLine && /[а-яё]/i.test(prevLine) && 
+              !prevLine.match(/^\d+$/) && 
+              !prevLine.includes('Код') && 
+              !prevLine.includes('код') &&
+              !prevLine.includes('АКТИВ') &&
+              !prevLine.includes('ПАССИВ') &&
+              !prevLine.startsWith('На ') &&
+              !prevLine.match(/^\d{4}[гr.]*$/)) {
+            hasRussianTextBefore = true;
+            break;
+          }
+        }
+        
+        if (hasRussianTextBefore) {
+          // Сохраняем предыдущий код
+          if (currentCode && currentSums.length > 0) {
+            codeData.set(currentCode, [...currentSums]);
+            console.log('Сохранены данные для кода:', currentCode, 'суммы:', currentSums);
           }
           
-          // Если не нашли полные числа, пробуем разбить на части
-          if (sums.length === 0) {
-            const parts = nextLine.split(/\s+/).filter(part => part.trim());
-            
-            for (const part of parts) {
-              if (sums.length >= columns) break;
-              
-              // Очищаем часть от лишних символов
-              const cleanPart = part.replace(/[^\d\-\.]/g, '').trim();
-              
-              if (cleanPart && (/\d/.test(cleanPart) || cleanPart === '-' || cleanPart === '.')) {
-                const sum = cleanSum(cleanPart);
-                if (sum > 0 || cleanPart === '-' || cleanPart === '.') {
-                  sums.push(sum);
-                  console.log('Добавлена сумма:', sum, 'из части:', cleanPart);
-                }
-              }
+          // Начинаем новый код
+          currentCode = line;
+          currentSums = [];
+          console.log('Найден код:', currentCode);
+        }
+      }
+    } else if (currentCode && (/\d/.test(line) || line === '-' || line === '.')) {
+      // Извлекаем числа из строки
+      const numberMatches = line.match(/\d[\d\s]*/g);
+      if (numberMatches) {
+        for (const match of numberMatches) {
+          const cleanNumber = match.replace(/\s/g, '').replace(/[^\d]/g, '');
+          if (cleanNumber && cleanNumber.length > 0) {
+            const sum = parseInt(cleanNumber, 10);
+            if (!isNaN(sum) && sum > 0) {
+              currentSums.push(sum);
             }
           }
         }
-        i++;
-      }
-      
-      // Если сумм меньше columns, заполняем 0
-      while (sums.length < columns) {
-        sums.push(0);
-      }
-      
-      console.log('Суммы для кода', code, ':', sums);
-
-      // Создаем объекты для каждой даты
-      for (let j = 0; j < columns; j++) {
-        otchetnost.push({
-          date: dates[j],
-          code,
-          sum: sums[j]
-        });
-      }
-    } else {
-      // Собираем название
-      if (!isCode(line) && line !== 'Код' && !line.startsWith('На ')) {
-        currentName.push(line);
       }
     }
-    i++;
+  }
+  
+  // Сохраняем последний код
+  if (currentCode && currentSums.length > 0) {
+    codeData.set(currentCode, [...currentSums]);
+    console.log('Сохранены данные для последнего кода:', currentCode, 'суммы:', currentSums);
+  }
+  
+  // Создаем итоговые записи
+  for (const [code, sums] of codeData) {
+    for (let j = 0; j < columns; j++) {
+      const sum = sums[j] || 0;
+      otchetnost.push({
+        date: dates[j],
+        code: code,
+        sum: sum
+      });
+    }
+    processedCodes++;
   }
   
   console.log('Обработано кодов:', processedCodes);
@@ -494,6 +514,9 @@ function parsePageContent(pageContents) {
   
   return { otchetnost };
 }
+
+// Экспортируем функцию для тестирования
+module.exports = { parsePageContent };
 
 // Пример использования в вашем коде:
 // Предполагаем, что вы собираете все pageContents в массив
