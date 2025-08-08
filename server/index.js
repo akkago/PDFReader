@@ -6,6 +6,7 @@ const fs = require('fs-extra');
 const { spawn } = require('child_process');
 const PDFConverter = require('./pdf-converter');
 const sharp = require('sharp');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,6 +21,12 @@ const uploadsDir = path.join(__dirname, '../uploads');
 const imagesDir = path.join(__dirname, '../uploads/images');
 fs.ensureDirSync(uploadsDir);
 fs.ensureDirSync(imagesDir);
+
+// Хранилище заявок (в продакшене использовать Redis или базу данных)
+const requests = new Map();
+
+// Поддерживаемые типы файлов
+const SUPPORTED_TYPES = ['otchetnost'];
 
 // Настройка multer для загрузки файлов
 const storage = multer.diskStorage({
@@ -45,7 +52,7 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB
     files: 1 // Только один файл
   }
-}).single('pdf');
+}).single('file');
 
 // Создаем экземпляр конвертера PDF
 const pdfConverter = new PDFConverter();
@@ -473,41 +480,42 @@ function parsePageContent(pageContents) {
 // });
 
 
-// API маршруты
-app.post('/api/upload', (req, res) => {
-  upload(req, res, async (err) => {
-    if (err) {
-      console.error('Ошибка загрузки файла:', err);
-      return res.status(400).json({ 
-        error: err.message || 'Ошибка загрузки файла' 
-      });
-    }
-    
-    let pdfPath = null;
-    let pdfImagesDir = null;
-  
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'Файл не загружен' });
-    }
+// Функция для валидации типа файла
+function validateFileType(fileType, content) {
+  if (!SUPPORTED_TYPES.includes(fileType)) {
+    return { valid: false, error: 'unsupported', error_msg: 'Парсинг данного типа файлов не поддерживается' };
+  }
 
-    pdfPath = req.file.path;
-    const pdfName = req.file.filename;
+  // Для типа 'otchetnost' проверяем наличие ключевых слов
+  if (fileType === 'otchetnost') {
+    const allText = content.join(' ').toLowerCase();
+    const keywords = ['баланс', 'отчет', 'форма', 'окуд', 'актив', 'пассив', 'код'];
+    const hasKeywords = keywords.some(keyword => allText.includes(keyword));
     
-    // Проверяем размер файла
-    const stats = fs.statSync(pdfPath);
-    if (stats.size === 0) {
-      return res.status(400).json({ error: 'Загруженный файл пустой' });
+    if (!hasKeywords) {
+      return { valid: false, error: 'invalid_type', error_msg: 'Содержимое файла не соответствует типу "otchetnost"' };
     }
+  }
+
+  return { valid: true };
+}
+
+// Функция для обработки заявки
+async function processRequest(requestId, filePath, fileType) {
+  try {
+    // Обновляем статус
+    requests.set(requestId, { status: 'in_progress' });
+
+    const pdfName = path.basename(filePath);
     
     // Создаем уникальную директорию для изображений этого PDF
-    pdfImagesDir = path.join(imagesDir, pdfName.replace('.pdf', ''));
+    const pdfImagesDir = path.join(imagesDir, pdfName.replace('.pdf', ''));
     await fs.ensureDir(pdfImagesDir);
 
-    console.log(`Начинаем обработку PDF: ${pdfName}, размер: ${stats.size} байт`);
+    console.log(`Начинаем обработку PDF: ${pdfName}, тип: ${fileType}`);
 
     // Конвертируем PDF в изображения
-    const images = await convertPdfToImages(pdfPath, pdfImagesDir);
+    const images = await convertPdfToImages(filePath, pdfImagesDir);
     
     if (!images || images.length === 0) {
       throw new Error('Не удалось конвертировать PDF в изображения');
@@ -527,7 +535,6 @@ app.post('/api/upload', (req, res) => {
           text: textResult.text,
           confidence: textResult.confidence,
           content: textResult.content,
-          // content: processFinancialReport(textResult.content, image.pageNumber),
           imagePath: image.path
         });
       } catch (error) {
@@ -544,49 +551,127 @@ app.post('/api/upload', (req, res) => {
 
     console.log(`Обработка завершена. Распознано ${results.length} страниц`);
 
+    // Собираем весь контент для валидации типа
+    const allContent = results.map(result => result.content || []).flat();
+    
+    // Валидируем тип файла
+    const validation = validateFileType(fileType, allContent);
+    if (!validation.valid) {
+      requests.set(requestId, { 
+        status: 'failed', 
+        error: validation.error, 
+        error_msg: validation.error_msg 
+      });
+      return;
+    }
+
+    // Парсим контент
+    const allPageContents = results.map(result => result.content || []);
+    const processedData = parsePageContent(allPageContents);
+
+    // Обновляем статус на завершенный
+    requests.set(requestId, { 
+      status: 'complete', 
+      content: processedData 
+    });
+
     // Очищаем временные файлы через минуту
     setTimeout(async () => {
       try {
-        const filesToClean = [];
-        if (pdfPath) filesToClean.push(pdfPath);
-        if (pdfImagesDir) filesToClean.push(pdfImagesDir);
+        const filesToClean = [filePath, pdfImagesDir];
         await pdfConverter.cleanupFiles(filesToClean);
       } catch (cleanupError) {
         console.error('Ошибка очистки временных файлов:', cleanupError);
       }
     }, 60000);
-    
-
-    results.sort((a, b) => a.page - b.page);
-    const allPageContents = results.map(result => result.content || []);
-    const processedData = parsePageContent(allPageContents);
-    res.json({
-      success: true,
-      filename: pdfName,
-      content: processedData,
-      pages: results.length,
-      results: results
-    });
 
   } catch (error) {
-    console.error('Ошибка обработки PDF:', error);
-    
-    // Очищаем временные файлы при ошибке
-    try {
-      const filesToClean = [];
-      if (pdfPath) filesToClean.push(pdfPath);
-      if (pdfImagesDir) filesToClean.push(pdfImagesDir);
-      await pdfConverter.cleanupFiles(filesToClean);
-    } catch (cleanupError) {
-      console.error('Ошибка очистки временных файлов при ошибке:', cleanupError);
-    }
-    
-    res.status(500).json({ 
-      error: 'Ошибка обработки PDF файла',
-      details: error.message 
+    console.error('Ошибка обработки заявки:', error);
+    requests.set(requestId, { 
+      status: 'failed', 
+      error: 'processing_error', 
+      error_msg: error.message 
     });
   }
+}
+
+// API маршруты
+
+// POST /parse - принимает файл, отдает id заявки
+app.post('/api/parse', (req, res) => {
+  upload(req, res, async (err) => {
+    if (err) {
+      console.error('Ошибка загрузки файла:', err);
+      return res.status(400).json({ 
+        error: err.message || 'Ошибка загрузки файла' 
+      });
+    }
+    
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: 'Файл не загружен' });
+      }
+
+      const { type } = req.body;
+      
+      if (!type) {
+        return res.status(400).json({ error: 'Тип файла обязателен' });
+      }
+
+      if (!SUPPORTED_TYPES.includes(type)) {
+        return res.status(400).json({ 
+          error: 'unsupported', 
+          error_msg: 'Парсинг данного типа файлов не поддерживается' 
+        });
+      }
+
+      // Проверяем размер файла
+      const stats = fs.statSync(req.file.path);
+      if (stats.size === 0) {
+        return res.status(400).json({ error: 'Загруженный файл пустой' });
+      }
+
+      // Генерируем уникальный ID заявки
+      const requestId = uuidv4();
+      
+      // Создаем запись о заявке
+      requests.set(requestId, { 
+        status: 'in_progress',
+        filePath: req.file.path,
+        fileType: type,
+        createdAt: new Date()
+      });
+
+      // Запускаем обработку в фоне
+      processRequest(requestId, req.file.path, type);
+
+      res.json({
+        request_id: requestId
+      });
+
+    } catch (error) {
+      console.error('Ошибка создания заявки:', error);
+      res.status(500).json({ 
+        error: 'Ошибка создания заявки',
+        details: error.message 
+      });
+    }
   });
+});
+
+// GET /result/$id - возвращает статус парсинга и содержимое документа
+app.get('/api/result/:id', (req, res) => {
+  const requestId = req.params.id;
+  
+  if (!requests.has(requestId)) {
+    return res.status(404).json({ 
+      error: 'not_found', 
+      error_msg: 'Заявка не найдена' 
+    });
+  }
+
+  const request = requests.get(requestId);
+  res.json(request);
 });
 
 // Обработка ошибок multer

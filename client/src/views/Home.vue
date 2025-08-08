@@ -20,6 +20,15 @@
               @change="onFileSelect"
             ></v-file-input>
             
+            <v-select
+              v-model="selectedType"
+              :items="supportedTypes"
+              label="Тип документа"
+              prepend-icon="mdi-file-document-outline"
+              :rules="typeRules"
+              class="mt-4"
+            ></v-select>
+            
             <v-alert
               v-if="error"
               type="error"
@@ -34,7 +43,7 @@
               color="primary"
               size="large"
               :loading="loading"
-              :disabled="!selectedFile || loading"
+              :disabled="!selectedFile || !selectedType || loading"
               @click="uploadFile"
               class="mt-4"
             >
@@ -45,6 +54,50 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- Статус обработки -->
+    <div v-if="currentRequestId && requestStatus">
+      <v-row justify="center">
+        <v-col cols="12" md="8" lg="6">
+          <v-card elevation="3" class="mb-6">
+            <v-card-title class="text-h6 pa-4">
+              <v-icon class="mr-2" :color="getStatusColor(requestStatus.status)">
+                {{ getStatusIcon(requestStatus.status) }}
+              </v-icon>
+              Статус обработки
+            </v-card-title>
+            
+            <v-card-text>
+              <v-alert
+                :type="getStatusAlertType(requestStatus.status)"
+                variant="tonal"
+                class="mb-4"
+              >
+                {{ getStatusMessage(requestStatus.status) }}
+              </v-alert>
+              
+              <div v-if="requestStatus.status === 'in_progress'" class="text-center">
+                <v-progress-circular
+                  indeterminate
+                  color="primary"
+                  size="64"
+                  class="mb-4"
+                ></v-progress-circular>
+                <div class="text-body-2 text-muted">
+                  Обработка может занять несколько минут...
+                </div>
+              </div>
+              
+              <div v-if="requestStatus.error" class="mt-3">
+                <v-alert type="error" variant="tonal">
+                  <strong>Ошибка:</strong> {{ requestStatus.error_msg }}
+                </v-alert>
+              </div>
+            </v-card-text>
+          </v-card>
+        </v-col>
+      </v-row>
+    </div>
 
     <!-- Статистика -->
     <div v-if="results.length > 0">
@@ -240,16 +293,29 @@ export default {
   data() {
     return {
       selectedFile: null,
+      selectedType: 'otchetnost',
       loading: false,
       error: '',
       content: '',
       results: [],
       activeTab: 0,
       contentViewMode: 'processed', // 'processed' или 'raw'
+      currentRequestId: null,
+      requestStatus: null,
+      pollingInterval: null,
+      supportedTypes: [
+        { title: 'Отчетность', value: 'otchetnost' }
+      ],
       fileRules: [
         value => {
           if (!value) return 'Файл обязателен'
           if (value.size > 10 * 1024 * 1024) return 'Файл должен быть меньше 10MB'
+          return true
+        }
+      ],
+      typeRules: [
+        value => {
+          if (!value) return 'Тип документа обязателен'
           return true
         }
       ]
@@ -261,35 +327,39 @@ export default {
       this.results = []
       this.activeTab = 0
       this.contentViewMode = 'processed'
+      this.currentRequestId = null
+      this.requestStatus = null
+      this.stopPolling()
     },
     
     async uploadFile() {
-      if (!this.selectedFile) return
+      if (!this.selectedFile || !this.selectedType) return
       
       this.loading = true
       this.error = ''
+      this.currentRequestId = null
+      this.requestStatus = null
+      this.stopPolling()
       
       const formData = new FormData()
-      formData.append('pdf', this.selectedFile)
+      formData.append('file', this.selectedFile)
+      formData.append('type', this.selectedType)
       
       try {
-        const response = await axios.post('/api/upload', formData, {
+        const response = await axios.post('/api/parse', formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
           },
-          timeout: 300000 // 5 минут
+          timeout: 30000 // 30 секунд для создания заявки
         })
         
-        this.results = response.data.results
-        this.content = response.data.content
-        // console.log('console.log' +this.results)
-
-        this.activeTab = 0
+        this.currentRequestId = response.data.request_id
+        this.startPolling()
         
       } catch (error) {
         console.error('Ошибка загрузки:', error)
         if (error.response?.data?.error) {
-          this.error = error.response.data.error
+          this.error = error.response.data.error_msg || error.response.data.error
         } else if (error.code === 'ECONNABORTED') {
           this.error = 'Превышено время ожидания. Попробуйте файл меньшего размера.'
         } else {
@@ -297,6 +367,80 @@ export default {
         }
       } finally {
         this.loading = false
+      }
+    },
+    
+    async checkRequestStatus() {
+      if (!this.currentRequestId) return
+      
+      try {
+        const response = await axios.get(`/api/result/${this.currentRequestId}`)
+        this.requestStatus = response.data
+        
+        if (response.data.status === 'complete') {
+          this.content = response.data.content
+          this.results = response.data.results || []
+          this.stopPolling()
+        } else if (response.data.status === 'failed') {
+          this.error = response.data.error_msg || 'Ошибка обработки файла'
+          this.stopPolling()
+        }
+        
+      } catch (error) {
+        console.error('Ошибка проверки статуса:', error)
+        if (error.response?.status === 404) {
+          this.error = 'Заявка не найдена'
+          this.stopPolling()
+        }
+      }
+    },
+    
+    startPolling() {
+      this.pollingInterval = setInterval(() => {
+        this.checkRequestStatus()
+      }, 2000) // Проверяем каждые 2 секунды
+    },
+    
+    stopPolling() {
+      if (this.pollingInterval) {
+        clearInterval(this.pollingInterval)
+        this.pollingInterval = null
+      }
+    },
+    
+    getStatusColor(status) {
+      switch (status) {
+        case 'in_progress': return 'warning'
+        case 'complete': return 'success'
+        case 'failed': return 'error'
+        default: return 'grey'
+      }
+    },
+    
+    getStatusIcon(status) {
+      switch (status) {
+        case 'in_progress': return 'mdi-clock-outline'
+        case 'complete': return 'mdi-check-circle'
+        case 'failed': return 'mdi-alert-circle'
+        default: return 'mdi-help-circle'
+      }
+    },
+    
+    getStatusAlertType(status) {
+      switch (status) {
+        case 'in_progress': return 'info'
+        case 'complete': return 'success'
+        case 'failed': return 'error'
+        default: return 'warning'
+      }
+    },
+    
+    getStatusMessage(status) {
+      switch (status) {
+        case 'in_progress': return 'Файл обрабатывается...'
+        case 'complete': return 'Обработка завершена успешно'
+        case 'failed': return 'Ошибка обработки файла'
+        default: return 'Неизвестный статус'
       }
     },
     
@@ -319,6 +463,10 @@ export default {
       
       return allContent
     }
+  },
+  
+  beforeUnmount() {
+    this.stopPolling()
   }
 }
 </script>
