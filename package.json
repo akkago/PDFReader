@@ -8,7 +8,8 @@
     "dev": "nodemon --no-deprecation server/index.js",
     "client": "cd client && npm run serve",
     "client:build": "cd client && npm run build",
-    "install:all": "npm install && cd client && npm install"
+    "install:all": "npm install && cd client && npm install",
+    "test": "jest"
   },
   "dependencies": {
     "axios": "^1.11.0",
@@ -18,12 +19,12 @@
     "fs-extra": "^11.2.0",
     "multer": "^1.4.5-lts.1",
     "path": "^0.12.7",
-    "pdf-parse": "^1.1.1",
     "pdf-poppler": "^0.2.1",
     "sharp": "^0.33.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "jest": "^29.7.0",
     "nodemon": "^3.0.1"
   },
   "keywords": [

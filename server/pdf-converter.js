@@ -1,7 +1,6 @@
 const fs = require('fs-extra');
 const path = require('path');
 const { spawn } = require('child_process');
-const sharp = require('sharp');
 const PDFConverterFallback = require('./pdf-converter-fallback');
 
 class PDFConverter {
@@ -187,10 +186,6 @@ class PDFConverter {
       console.error('Ошибка обработки конвертированных файлов:', error);
       throw error;
     }
-  }
-
-  delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async cleanupFiles(files) {
