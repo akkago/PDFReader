@@ -318,6 +318,36 @@ function parsePageContent(pageContents) {
     // console.log('Сохранены данные для последнего кода:', currentCode, 'суммы:', currentSums);
   }
   
+  // Агрегация сумм по родительским кодам (например, 1150 = 11501 + 11502)
+  const aggregatedByParent = new Map();
+  for (const [code, sums] of codeData) {
+    if (/^\d{5}$/.test(code)) {
+      const parent = code.slice(0, 4);
+      const acc = aggregatedByParent.get(parent) || Array.from({ length: columns }, () => 0);
+      for (let j = 0; j < columns; j++) {
+        acc[j] += (sums[j] || 0);
+      }
+      aggregatedByParent.set(parent, acc);
+    }
+  }
+
+  for (const [parent, aggSums] of aggregatedByParent) {
+    // если родитель уже есть, заменяем нулевые суммы на агрегированные
+    const existing = codeData.get(parent) || [];
+    const existingTotal = existing.reduce((a, b) => a + (b || 0), 0);
+    if (existing.length === 0 || existingTotal === 0) {
+      codeData.set(parent, aggSums);
+    } else {
+      // если есть частично, то заполним нули агрегированными
+      const merged = [];
+      for (let j = 0; j < columns; j++) {
+        const v = existing[j] || 0;
+        merged[j] = v > 0 ? v : (aggSums[j] || 0);
+      }
+      codeData.set(parent, merged);
+    }
+  }
+
   for (const [code, sums] of codeData) {
     if (allowedCodesSet && !allowedCodesSet.has(code)) {
       continue;
