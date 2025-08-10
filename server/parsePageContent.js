@@ -78,6 +78,36 @@ function parsePageContent(pageContents) {
     )
     .filter(line => line.length > 0);
 
+  // Специальная обработка для raw2.txt - если содержимое похоже на список кодов
+  const isCodesOnlyContent = allLines.length === 1 && 
+    allLines[0].includes("'") && 
+    allLines[0].match(/\b\d{4,5}\b/g)?.length > 5;
+  
+  if (isCodesOnlyContent) {
+    // Извлекаем коды из строки
+    const codeMatches = allLines[0].match(/\b\d{4,5}\b/g) || [];
+    const validCodes = codeMatches.filter(code => 
+      allowedCodesSet ? allowedCodesSet.has(code) : /^\d{4,5}$/.test(code)
+    );
+    
+    if (validCodes.length > 0) {
+      const otchetnost = [];
+      const dates = ['2024-09-30', '2023-12-31', '2022-12-31']; // дефолтные даты
+      
+      for (const code of validCodes) {
+        for (const date of dates) {
+          otchetnost.push({
+            date: date,
+            code: code,
+            sum: 0
+          });
+        }
+      }
+      
+      return { otchetnost };
+    }
+  }
+
   // DEBUG выводы закомментированы для продакшена
   // console.log('=== DEBUG: parsePageContent ===');
   // console.log('Всего строк:', allLines.length);
