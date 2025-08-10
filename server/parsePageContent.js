@@ -59,12 +59,12 @@ function parseDate(day, monthName, year) {
   const month = monthsMap[cleanMonthName];
   
   if (!month) {
-    console.log('Не удалось распарсить месяц:', monthName, 'очищенное:', cleanMonthName);
+    // console.log('Не удалось распарсить месяц:', monthName, 'очищенное:', cleanMonthName);
     return null;
   }
   
   const result = `${year}-${month}-${day.padStart(2, '0')}`;
-  console.log('Распарсена дата:', result, 'из:', day, monthName, year);
+  // console.log('Распарсена дата:', result, 'из:', day, monthName, year);
   return result;
 }
 
@@ -287,7 +287,8 @@ function parsePageContent(pageContents) {
       // Исключаем годы вида 19xx-20xx, чтобы не спутать с кодами
       const isYearNumber = line.length === 4 && num >= 1900 && num <= 2100;
       if (!isYearNumber && num >= 1000 && num <= 99999) {
-        if (hasDescriptiveTextBefore(allLines, i)) {
+        const isAllowedCode = !!(allowedCodesSet && allowedCodesSet.has(line));
+        if (isAllowedCode || hasDescriptiveTextBefore(allLines, i)) {
           if (currentCode) {
             codeData.set(currentCode, [...currentSums]);
             // console.log('Сохранены данные для кода:', currentCode, 'суммы:', currentSums);
@@ -332,19 +333,31 @@ function parsePageContent(pageContents) {
   }
 
   for (const [parent, aggSums] of aggregatedByParent) {
-    // если родитель уже есть, заменяем нулевые суммы на агрегированные
-    const existing = codeData.get(parent) || [];
-    const existingTotal = existing.reduce((a, b) => a + (b || 0), 0);
-    if (existing.length === 0 || existingTotal === 0) {
-      codeData.set(parent, aggSums);
-    } else {
-      // если есть частично, то заполним нули агрегированными
-      const merged = [];
-      for (let j = 0; j < columns; j++) {
-        const v = existing[j] || 0;
-        merged[j] = v > 0 ? v : (aggSums[j] || 0);
+    // всегда используем агрегированные суммы для родительского кода
+    codeData.set(parent, aggSums);
+  }
+
+  // Проталкиваем суммы от родителя к детям, если у детей нули
+  const childrenByParent = new Map();
+  for (const [code] of codeData) {
+    if (/^\d{5}$/.test(code)) {
+      const parent = code.slice(0, 4);
+      const list = childrenByParent.get(parent) || [];
+      list.push(code);
+      childrenByParent.set(parent, list);
+    }
+  }
+
+  const sumsAllZero = (arr) => !arr || arr.every(v => !v || v === 0);
+  for (const [parent, children] of childrenByParent) {
+    const parentSums = codeData.get(parent) || [];
+    if (!sumsAllZero(parentSums)) {
+      for (const child of children) {
+        const childSums = codeData.get(child) || [];
+        if (sumsAllZero(childSums)) {
+          codeData.set(child, [...parentSums]);
+        }
       }
-      codeData.set(parent, merged);
     }
   }
 
