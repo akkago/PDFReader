@@ -1,9 +1,9 @@
 const { parsePageContent } = require('../parsePageContent');
 
 describe('codes2.txt no-extra coverage', () => {
-  test('basic codes2 no-extra test works', () => {
-    const codes = ['2510', '2520', '2530', '9999'];
-    const rawStrings = ['test', '2510', '2520'];
+  test('никакие коды из codes2.txt, отсутствующие в raw2.txt, не появляются в parsePageContent', () => {
+    const codes = ['2110', '2120', '2100', '2210', '2220', '2200', '2310', '2320', '2330', '2340', '23401', '23402', '23403', '23404', '23405', '23406', '2350', '23501', '23502', '23503', '23504', '23505', '23506', '23507', '23508', '23509', '2300', '2410', '2411', '2412', '2460', '2400', '2510', '2520', '2530', '2500', '2900', '2910'];
+    const rawStrings = ['2510', '2520', '2530', '2500', '2900', '2910'];
 
     const codesNotInRaw = codes.filter(code => !rawStrings.includes(code));
     expect(codesNotInRaw.length).toBeGreaterThan(0);
