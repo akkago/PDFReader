@@ -3,109 +3,203 @@ function parsePageContent(pageContents) {
     return { error: 'Invalid input data' };
   }
 
+  // Helpers
+  const hasCyrillic = s => /[А-Яа-яЁё]/.test(s);
+  const isCodeStrict = s => /^\d{4,5}$/.test(s);
+  const isNumericOnly = s => /^[\s()\-\−–—\d]+$/.test(s); // цифры, пробелы, скобки, минусы/тире
+  const MONTHS = {
+    январ: '01', феврал: '02', март: '03', апрел: '04', ма: '05', // май / мая
+    июн: '06', июл: '07', август: '08', сентябр: '09', октябр: '10', ноябр: '11', декабр: '12'
+  };
+
+  const normalizeLine = (line) => String(line || '')
+    .replace(/[\u0000\ufeff]/g, '')        // нули/БОМ
+    .replace(/\u00A0/g, ' ')               // неразрывные пробелы
+    .replace(/[|]/g, ' ')                  // вертикальные разделители как пробел
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const parseNumericValue = (s) => {
+    if (!s) return 0;
+    let v = s.replace(/\s+/g, '').replace(/[−–—]/g, '-');
+    if (v === '-' || v === '') return 0;
+    const isParen = v.startsWith('(') && v.endsWith(')');
+    if (isParen) v = '-' + v.slice(1, -1);
+    // Иногда OCR засовывает точку-артефакт или запятую на конце — удалим
+    v = v.replace(/[.,]$/, '');
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) ? n : 0;
+  };
+
   const allLines = pageContents
     .flat()
-    .map(line => String(line)
-      .replace(/[\u0000\ufeff]/g, '')
-      .replace(/\s+/g, ' ')
-      .trim()
-    )
+    .map(normalizeLine)
     .filter(line => line.length > 0);
 
   if (allLines.length === 0) {
     return { error: 'No valid lines found' };
   }
 
-  const isCodesOnlyContent = allLines.length === 1 && 
-    allLines[0].includes("'") && 
-    allLines[0].match(/\b\d{4,5}\b/g)?.length > 5;
-  
+  // Special case: строка только со списком кодов в кавычках — заполним нулями
+  const isCodesOnlyContent = allLines.length === 1 &&
+    allLines[0].includes("'") &&
+    (allLines[0].match(/\b\d{4,5}\b/g)?.length || 0) > 5;
+
   if (isCodesOnlyContent) {
     const codeMatches = allLines[0].match(/\b\d{4,5}\b/g) || [];
     const validCodes = codeMatches.filter(code => /^\d{4,5}$/.test(code));
-    
     if (validCodes.length > 0) {
       const otchetnost = [];
       const dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-      
       for (const code of validCodes) {
         for (const date of dates) {
-          otchetnost.push({
-            date: date,
-            code: code,
-            sum: 0
-          });
+          otchetnost.push({ date, code, sum: 0 });
         }
       }
-      
       return { otchetnost };
     }
   }
 
-  const otchetnost = [];
-  const dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-  const codeData = [];
-  
-  for (let i = 0; i < allLines.length; i++) {
-    const line = allLines[i];
-    
-    const codeMatches = line.match(/\b(\d{4,5})\b/g);
-    if (codeMatches) {
-      for (const codeMatch of codeMatches) {
-        const code = codeMatch;
-        if (code.length === 4 && parseInt(code) >= 1900 && parseInt(code) <= 2100) {
-          continue;
-        }
-        
-        const sums = [];
-        let j = i + 1;
-        
-        while (j < allLines.length && j < i + 10) {
-          const nextLine = allLines[j];
-          const sumMatch = nextLine.match(/^(\d[\d\s]*)$/);
-          
-          if (sumMatch) {
-            const sumStr = sumMatch[1].replace(/\s/g, '');
-            const sum = parseInt(sumStr);
-            if (!isNaN(sum) && sum > 0) {
-              sums.push(sum);
-            }
-          } else if (nextLine.match(/\b\d{4,5}\b/)) {
-            break;
-          }
-          j++;
-        }
-        
-        if (sums.length > 0) {
-          codeData.push({ code, sums });
-        } else {
-          codeData.push({ code, sums: [0, 0, 0] });
+  // Определяем форму, чтобы понять число колонок по умолчанию
+  const isForm1 = allLines.some(l => l.includes('0710001'));
+  const isForm2 = allLines.some(l => l.includes('0710002'));
+
+  // Пытаемся вытащить даты из заголовков
+  const extractDates = (lines) => {
+    const found = [];
+
+    // Поиск "день <месяц> год"
+    for (const raw of lines) {
+      const line = raw.toLowerCase();
+      // Пример: "30 сентября 2024", "31 декабря 2023"
+      const dm = line.match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})/i);
+      if (dm) {
+        const day = dm[1].padStart(2, '0');
+        const monKey = Object.keys(MONTHS).find(m => dm[2].startsWith(m));
+        const year = dm[3];
+        if (monKey) {
+          const month = MONTHS[monKey];
+          const iso = `${year}-${month}-${day}`;
+          if (!found.includes(iso)) found.push(iso);
         }
       }
     }
+
+    // Если вообще ничего не нашли — попробуем найти годы в “шапке” (за/на ... 2024 г., 2023 г.)
+    if (found.length === 0) {
+      const years = [];
+      for (const raw of lines) {
+        const line = raw.toLowerCase();
+        if (/(за|на|по|итог|период|январ|феврал|март|апрел|май|мая|июн|июл|август|сентябр|октябр|ноябр|декабр)/.test(line)) {
+          const ym = line.match(/(20\d{2})\s*г?\.?/g); // все года вида 20xx
+          if (ym) {
+            for (const y of ym) {
+              const year = y.replace(/[^\d]/g, '');
+              if (year && !years.includes(year)) years.push(year);
+            }
+          }
+        }
+      }
+      if (years.length > 0) return years; // вернём список лет как есть
+    }
+
+    return found;
+  };
+
+  let dates = extractDates(allLines);
+
+  // Фоллбек дат по форме (и число колонок)
+  if (dates.length === 0) {
+    if (isForm1) {
+      dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
+    } else if (isForm2) {
+      // Для формы 2 стандартно 2 колонки (за отчётный и за предыдущий период)
+      dates = ['2024', '2023'];
+    } else {
+      // Универсальный фоллбек
+      dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
+    }
+  } else {
+    // Если нашли только один год/дату — попробуем расширить по форме
+    if (dates.length === 1 && isForm1) {
+      dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
+    } else if (dates.length === 1 && isForm2) {
+      dates = ['2024', '2023'];
+    }
   }
-  
+
+  // Нормализуем порядок: чаще всего свежая дата первой (как в примерах)
+  // Если формы 1 и 2 дали “правильный” порядок — оставляем как есть.
+  const expectedCols = dates.length;
+
+  // Поиск кодов по окрестностям: код = 4-5 цифр, строка-предшественник с кириллицей
+  const codeData = [];
+
+  for (let i = 0; i < allLines.length; i++) {
+    const line = allLines[i];
+
+    if (!isCodeStrict(line)) continue;
+
+    // Грубая защита от попадания годов (например, 2024) — только контекстом:
+    // Просматриваем до 3 строк вверх в поисках "текстовой" строки с кириллицей
+    let hasCyrBefore = false;
+    for (let k = i - 1, steps = 0; k >= 0 && steps < 3; k--, steps++) {
+      const prev = allLines[k];
+      if (!prev) continue;
+      if (hasCyrillic(prev)) { hasCyrBefore = true; break; }
+      // Если выше только цифры/коды — продолжаем смотреть
+    }
+    if (!hasCyrBefore) continue;
+
+    // Сбор значений: следующие строки, только числовые, пока не наберём expectedCols
+    const sums = [];
+    let j = i + 1;
+    while (j < allLines.length && sums.length < expectedCols) {
+      const nextLine = allLines[j];
+
+      if (isNumericOnly(nextLine)) {
+        sums.push(parseNumericValue(nextLine));
+        j++;
+        continue;
+      }
+
+      // Если встретили следующий код — прекращаем
+      if (isCodeStrict(nextLine)) break;
+
+      // Если текстовая строка — прекращаем
+      if (hasCyrillic(nextLine)) break;
+
+      // Остальное игнорируем и двигаемся дальше (иногда бывает пустяковый артефакт)
+      j++;
+    }
+
+    // Если значений меньше, чем колонок — дополним нулями
+    while (sums.length < expectedCols) sums.push(0);
+
+    codeData.push({ code: line, sums });
+  }
+
+  // Формируем итоговый массив
+  const otchetnost = [];
   for (const { code, sums } of codeData) {
-    for (let i = 0; i < dates.length; i++) {
+    for (let d = 0; d < dates.length; d++) {
       otchetnost.push({
-        date: dates[i],
-        code: code,
-        sum: sums[i] || 0
+        date: dates[d],
+        code,
+        sum: sums[d] || 0
       });
     }
   }
-  
+
   if (otchetnost.length === 0) {
-    return { 
+    return {
       error: 'Не удалось извлечь структурированные данные из документа',
       otchetnost: [],
-      rawLines: allLines.slice(0, 50)
+      rawLines: allLines.slice(0, 100)
     };
   }
-  
+
   return { otchetnost };
 }
 
 module.exports = { parsePageContent };
-
-
