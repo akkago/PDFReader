@@ -7,12 +7,19 @@ from paddleocr import PaddleOCR
 import cv2
 import numpy as np
 import io
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-# Настройка логирования
+
+# Настройка кодировки для stdout и stderr
+sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
+sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', buffering=1)
+
+# Установка переменной окружения для Python
+os.environ['PYTHONIOENCODING'] = 'utf-8'
+# Настройка логирования с правильной кодировкой
 logging.basicConfig(
     filename='paddleocr.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    encoding='utf-8'
 )
 
 logging.info("init PaddleOCR")
@@ -162,6 +169,7 @@ def main():
 
     image_path = sys.argv[1]
     result = recognize_text(image_path)
+    # Выводим результат с правильной кодировкой
     print(json.dumps(result, ensure_ascii=False, indent=2))
     logging.info("end")
 

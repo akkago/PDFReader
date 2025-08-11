@@ -58,17 +58,19 @@ function recognizeTextWithPaddleOCR(imagePath) {
     const pythonProcess = spawn('python', [
       path.join(__dirname, 'paddleocr_script.py'),
       imagePath
-    ]);
+    ], {
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+    });
 
     let result = '';
     let error = '';
 
     pythonProcess.stdout.on('data', (data) => {
-      result += data.toString();
+      result += data.toString('utf-8');
     });
 
     pythonProcess.stderr.on('data', (data) => {
-      error += data.toString();
+      error += data.toString('utf-8');
     });
 
     pythonProcess.on('close', (code) => {
