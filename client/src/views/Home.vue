@@ -20,14 +20,7 @@
               @change="onFileSelect"
             ></v-file-input>
             
-            <v-select
-              v-model="selectedType"
-              :items="supportedTypes"
-              label="Тип документа"
-              prepend-icon="mdi-file-document-outline"
-              :rules="typeRules"
-              class="mt-4"
-            ></v-select>
+
             
             <v-alert
               v-if="error"
@@ -43,7 +36,7 @@
               color="primary"
               size="large"
               :loading="loading"
-              :disabled="!selectedFile || !selectedType || loading"
+              :disabled="!selectedFile || loading"
               @click="uploadFile"
               class="mt-4"
             >
@@ -293,7 +286,6 @@ export default {
   data() {
     return {
       selectedFile: null,
-      selectedType: 'otchetnost',
       loading: false,
       error: '',
       content: '',
@@ -303,9 +295,6 @@ export default {
       currentRequestId: null,
       requestStatus: null,
       pollingInterval: null,
-      supportedTypes: [
-        { title: 'Отчетность', value: 'otchetnost' }
-      ],
       fileRules: [
         value => {
           if (!value) return 'Файл обязателен'
@@ -313,12 +302,7 @@ export default {
           return true
         }
       ],
-      typeRules: [
-        value => {
-          if (!value) return 'Тип документа обязателен'
-          return true
-        }
-      ]
+
     }
   },
   methods: {
@@ -333,7 +317,7 @@ export default {
     },
     
     async uploadFile() {
-      if (!this.selectedFile || !this.selectedType) return
+      if (!this.selectedFile) return
       
       this.loading = true
       this.error = ''
@@ -343,7 +327,7 @@ export default {
       
       const formData = new FormData()
       formData.append('file', this.selectedFile)
-      formData.append('type', this.selectedType)
+      formData.append('type', 'otchetnost')
       
       try {
         const response = await axios.post('/api/parse', formData, {

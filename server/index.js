@@ -206,12 +206,8 @@ app.post('/api/parse', (req, res) => {
         return res.status(400).json({ error: 'Файл не загружен' });
       }
 
-      const { type } = req.body;
+      const { type = 'otchetnost' } = req.body;
       
-      if (!type) {
-        return res.status(400).json({ error: 'Тип файла обязателен' });
-      }
-
       if (!SUPPORTED_TYPES.includes(type)) {
         return res.status(400).json({ 
           error: 'unsupported', 
