@@ -88,9 +88,6 @@ function recognizeTextWithPaddleOCR(imagePath) {
   });
 }
 
-// no exports from server entrypoint
-
-
 function validateFileType(fileType, content) {
   if (!SUPPORTED_TYPES.includes(fileType)) {
     return { valid: false, error: 'unsupported', error_msg: 'Парсинг данного типа файлов не поддерживается' };

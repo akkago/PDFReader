@@ -13,7 +13,6 @@ echo.
 echo 3. Добавление в PATH...
 set "POPPLER_PATH=C:\poppler\Library\bin"
 
-REM Проверяем существование директории
 if not exist "%POPPLER_PATH%" (
     echo ОШИБКА: Директория %POPPLER_PATH% не найдена!
     echo Убедитесь, что вы распаковали Poppler в C:\poppler
@@ -22,10 +21,9 @@ if not exist "%POPPLER_PATH%" (
     exit /b 1
 )
 
-REM Добавляем в PATH для текущей сессии
 set "PATH=%PATH%;%POPPLER_PATH%"
 
-REM Добавляем в системную переменную PATH
+echo Добавляем Poppler в системную переменную PATH...
 echo Добавляем Poppler в системную переменную PATH...
 powershell -Command "& {[Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH', 'Machine') + ';%POPPLER_PATH%', 'Machine')}"
 

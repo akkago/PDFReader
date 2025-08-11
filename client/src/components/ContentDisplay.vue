@@ -26,7 +26,6 @@
     </v-card-title>
     
     <v-card-text>
-      <!-- Ошибка обработки -->
       <v-alert
         v-if="content && content.error"
         type="error"
@@ -36,7 +35,6 @@
         <strong>Ошибка обработки:</strong> {{ content.error }}
       </v-alert>
 
-      <!-- Таблица с данными -->
       <div v-if="content && content.otchetnost && content.otchetnost.length > 0">
         <v-data-table
           :headers="headers"
@@ -76,7 +74,6 @@
           </template>
         </v-data-table>
 
-        <!-- Статистика -->
         <v-row class="mt-6">
           <v-col cols="12" md="4">
             <v-card variant="outlined" class="pa-4">
@@ -124,7 +121,6 @@
           </v-col>
         </v-row>
 
-        <!-- График по датам -->
         <v-card variant="outlined" class="mt-6 pa-4">
           <v-card-title class="text-h6">
             <v-icon class="mr-2" color="primary">mdi-chart-bar</v-icon>
@@ -152,7 +148,6 @@
         </v-card>
       </div>
 
-      <!-- Пустое состояние -->
       <v-alert
         v-else-if="content && (!content.otchetnost || content.otchetnost.length === 0)"
         type="info"
@@ -163,7 +158,6 @@
         <div>Данные для отображения отсутствуют</div>
         <div class="text-caption">Возможно, документ не содержит финансовых данных или произошла ошибка при обработке</div>
         
-        <!-- Отладочная информация -->
         <div v-if="content.error" class="mt-3">
           <v-alert type="warning" variant="tonal" class="mb-3">
             <strong>Ошибка обработки:</strong> {{ content.error }}
@@ -197,7 +191,6 @@
         </div>
       </v-alert>
 
-      <!-- Загрузка -->
       <v-alert
         v-else
         type="info"

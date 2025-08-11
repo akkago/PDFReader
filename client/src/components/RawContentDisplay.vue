@@ -26,7 +26,6 @@
     </v-card-title>
     
     <v-card-text>
-      <!-- Поиск -->
       <v-text-field
         v-model="searchQuery"
         prepend-inner-icon="mdi-magnify"
@@ -37,7 +36,6 @@
         clearable
       ></v-text-field>
 
-      <!-- Фильтры -->
       <v-row class="mb-4">
         <v-col cols="12" md="4">
           <v-select
@@ -67,7 +65,6 @@
         </v-col>
       </v-row>
 
-      <!-- Данные -->
       <div v-if="filteredContent.length > 0">
         <v-list class="elevation-1 rounded">
           <v-list-item
@@ -105,7 +102,6 @@
           </v-list-item>
         </v-list>
 
-        <!-- Пагинация -->
         <v-pagination
           v-model="currentPage"
           :length="totalPages"
@@ -114,7 +110,6 @@
         ></v-pagination>
       </div>
 
-      <!-- Пустое состояние -->
       <v-alert
         v-else
         type="info"

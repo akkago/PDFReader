@@ -8,13 +8,10 @@ import cv2
 import numpy as np
 import io
 
-# Настройка кодировки для stdout и stderr
 sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf-8', buffering=1)
 sys.stderr = open(sys.stderr.fileno(), mode='w', encoding='utf-8', buffering=1)
 
-# Установка переменной окружения для Python
 os.environ['PYTHONIOENCODING'] = 'utf-8'
-# Настройка логирования с правильной кодировкой
 logging.basicConfig(
     filename='paddleocr.log',
     level=logging.INFO,
@@ -60,7 +57,6 @@ def recognize_text(image_path, output_mode=0):
         result = ocr.ocr(image_path)
         logging.info(f"Type of result: {type(result)}")
 
-        # Логируем только rec_texts и rec_scores
         if isinstance(result, list) and len(result) > 0:
             for idx, item in enumerate(result):
                 if isinstance(item, dict):
@@ -74,10 +70,8 @@ def recognize_text(image_path, output_mode=0):
         else:
             logging.warning("result is empty or not a list")
 
-        # Извлекаем данные из результата
         txts, scores, boxes = [], [], []
         if isinstance(result, list) and len(result) > 0:
-            # Берем только первую страницу (или первый результат)
             item = result[0]
             if isinstance(item, dict):
                 txts = item.get('rec_texts', [])
@@ -113,7 +107,6 @@ def recognize_text(image_path, output_mode=0):
                 "results_str": ""
             }
 
-        # Рисование в зависимости от output_mode
         if output_mode == 0:
             im_show = draw_ocr_box_txt(image_path, boxes, txts, scores)
         elif output_mode == 1:
@@ -169,7 +162,6 @@ def main():
 
     image_path = sys.argv[1]
     result = recognize_text(image_path)
-    # Выводим результат с правильной кодировкой
     print(json.dumps(result, ensure_ascii=False, indent=2))
     logging.info("end")
 

@@ -48,7 +48,6 @@
       </v-col>
     </v-row>
 
-    <!-- Статус обработки -->
     <div v-if="currentRequestId && requestStatus">
       <v-row justify="center">
         <v-col cols="12" md="8" lg="6">
@@ -92,7 +91,6 @@
       </v-row>
     </div>
 
-    <!-- Статистика -->
     <div v-if="results.length > 0">
       <v-row justify="center">
         <v-col cols="12" lg="10">
@@ -101,11 +99,9 @@
       </v-row>
     </div>
 
-    <!-- Отображение данных -->
     <div v-if="content || (results.length > 0 && results.some(r => r.content))">
       <v-row justify="center">
         <v-col cols="12" lg="10">
-          <!-- Переключатель режимов просмотра -->
           <v-card elevation="2" class="mb-4">
             <v-card-text class="pa-4">
               <v-btn-toggle
@@ -130,13 +126,11 @@
             </v-card-text>
           </v-card>
 
-          <!-- Обработанные данные -->
           <ContentDisplay 
             v-if="contentViewMode === 'processed' && content" 
             :content="content" 
           />
 
-          <!-- Сырые данные -->
           <RawContentDisplay 
             v-if="contentViewMode === 'raw' && results.length > 0"
             :raw-content="getRawContent()"
@@ -144,7 +138,6 @@
         </v-col>
       </v-row>
     </div>
-    <!-- Результаты распознавания -->
     <div v-if="results.length > 0">
       <v-row justify="center">
         <v-col cols="12" lg="10">

@@ -5,29 +5,23 @@ const PDFConverterFallback = require('./pdf-converter-fallback');
 
 class PDFConverter {
   constructor() {
-    this.maxRetries = 3;
-    this.retryDelay = 1000; // 1 секунда
   }
 
   async convertPDFToImages(pdfPath, outputDir) {
     try {
-      // Проверяем существование файла
       if (!await fs.pathExists(pdfPath)) {
         throw new Error(`PDF файл не найден: ${pdfPath}`);
       }
 
-      // Проверяем размер файла
       const stats = await fs.stat(pdfPath);
       if (stats.size === 0) {
         throw new Error('PDF файл пустой');
       }
 
-      // Создаем директорию для изображений
       await fs.ensureDir(outputDir);
 
       console.log(`Начинаем конвертацию PDF: ${pdfPath}`);
 
-      // Используем pdftoppm (часть poppler-utils) для конвертации
       const results = await this.convertWithPdfToPpm(pdfPath, outputDir);
       
       if (!results || results.length === 0) {
@@ -40,14 +34,12 @@ class PDFConverter {
     } catch (error) {
       console.error('Ошибка конвертации PDF:', error);
       
-      // Попробуем альтернативный метод
       try {
         console.log('Пробуем альтернативный метод конвертации...');
         return await this.convertWithPdfToCairo(pdfPath, outputDir);
       } catch (altError) {
         console.error('Альтернативный метод также не удался:', altError);
         
-        // Используем fallback конвертер
         try {
           console.log('Используем fallback конвертер...');
           const fallbackConverter = new PDFConverterFallback();
@@ -64,12 +56,12 @@ class PDFConverter {
     return new Promise((resolve, reject) => {
       const outputPrefix = path.join(outputDir, 'page');
       const args = [
-        '-png',           // Формат PNG
-        '-r', '150',      // Разрешение 150 DPI
-        '-f', '1',        // Первая страница
-        '-l', '999',      // Последняя страница (большое число)
-        pdfPath,          // Входной файл
-        outputPrefix      // Префикс выходных файлов
+        '-png',
+        '-r', '150',
+        '-f', '1',
+        '-l', '999',
+        pdfPath,
+        outputPrefix
       ];
 
       console.log('Запуск pdftoppm с аргументами:', args.join(' '));
@@ -114,10 +106,10 @@ class PDFConverter {
     return new Promise((resolve, reject) => {
       const outputPrefix = path.join(outputDir, 'page');
       const args = [
-        '-png',           // Формат PNG
-        '-r', '150',      // Разрешение 150 DPI
-        pdfPath,          // Входной файл
-        outputPrefix      // Префикс выходных файлов
+        '-png',
+        '-r', '150',
+        pdfPath,
+        outputPrefix
       ];
 
       console.log('Запуск pdftocairo с аргументами:', args.join(' '));
@@ -170,7 +162,6 @@ class PDFConverter {
         const fileName = pngFiles[i];
         const filePath = path.join(outputDir, fileName);
         
-        // Проверяем, что файл существует и не пустой
         const stats = await fs.stat(filePath);
         if (stats.size > 0) {
           results.push({

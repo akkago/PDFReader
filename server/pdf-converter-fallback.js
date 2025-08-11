@@ -4,29 +4,22 @@ const sharp = require('sharp');
 
 class PDFConverterFallback {
   constructor() {
-    this.maxRetries = 3;
-    this.retryDelay = 1000;
   }
 
   async convertPDFToImages(pdfPath, outputDir) {
     try {
-      // Проверяем существование файла
       if (!await fs.pathExists(pdfPath)) {
         throw new Error(`PDF файл не найден: ${pdfPath}`);
       }
 
-      // Проверяем размер файла
       const stats = await fs.stat(pdfPath);
       if (stats.size === 0) {
         throw new Error('PDF файл пустой');
       }
 
-      // Создаем директорию для изображений
       await fs.ensureDir(outputDir);
 
       console.log(`Начинаем конвертацию PDF (fallback метод): ${pdfPath}`);
-
-      // Используем pdf-poppler как fallback
       const results = await this.convertWithPdfPoppler(pdfPath, outputDir);
       
       if (!results || results.length === 0) {
@@ -44,14 +37,13 @@ class PDFConverterFallback {
 
   async convertWithPdfPoppler(pdfPath, outputDir) {
     try {
-      // Динамически импортируем pdf-poppler
       const pdfPoppler = require('pdf-poppler');
       
       const opts = {
         format: 'png',
         out_dir: outputDir,
         out_prefix: 'page',
-        page: null, // Все страницы
+        page: null,
         scale: 1.0,
         density: 150
       };
@@ -60,13 +52,11 @@ class PDFConverterFallback {
 
       await pdfPoppler.convert(pdfPath, opts);
       
-      // Обрабатываем созданные файлы
       return await this.processConvertedFiles(outputDir, 'page');
       
     } catch (error) {
       console.error('Ошибка pdf-poppler:', error);
       
-      // Если pdf-poppler не работает, создаем заглушку
       console.log('Создаем заглушку для тестирования...');
       return await this.createTestImage(outputDir);
     }
@@ -74,10 +64,7 @@ class PDFConverterFallback {
 
   async createTestImage(outputDir) {
     try {
-      // Создаем простое тестовое изображение
       const testImagePath = path.join(outputDir, 'page-1.png');
-      
-      // Создаем белое изображение 800x600
       const imageBuffer = await sharp({
         create: {
           width: 800,
@@ -116,7 +103,6 @@ class PDFConverterFallback {
         const fileName = pngFiles[i];
         const filePath = path.join(outputDir, fileName);
         
-        // Проверяем, что файл существует и не пустой
         const stats = await fs.stat(filePath);
         if (stats.size > 0) {
           results.push({
@@ -132,10 +118,6 @@ class PDFConverterFallback {
       console.error('Ошибка обработки конвертированных файлов (fallback):', error);
       throw error;
     }
-  }
-
-  delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async cleanupFiles(files) {

@@ -2,7 +2,7 @@ const { defineConfig } = require('@vue/cli-service')
 
 module.exports = defineConfig({
   transpileDependencies: true,
-  lintOnSave: false, // Отключаем ESLint при сохранении
+  lintOnSave: false,
   devServer: {
     port: 8080,
     proxy: {

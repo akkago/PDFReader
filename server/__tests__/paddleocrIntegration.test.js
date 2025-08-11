@@ -2,7 +2,6 @@ const { parsePageContent } = require('../parsePageContent');
 
 describe('paddleocr integration test', () => {
   test('parsePageContent should process paddleocr.log data correctly', () => {
-    // Данные из paddleocr.log
     const paddleocrData = [
       ' ',
       ' 30  2024.',
@@ -162,7 +161,6 @@ describe('paddleocr integration test', () => {
       '-'
     ];
 
-    // Ожидаемый результат из res.txt (основные коды с суммами)
     const expectedCodes = {
       '1110': [0, 0, 0],
       '1120': [0, 0, 0],
@@ -192,7 +190,6 @@ describe('paddleocr integration test', () => {
     expect(Array.isArray(otchetnost)).toBe(true);
     expect(otchetnost.length).toBeGreaterThan(0);
 
-    // Проверяем структуру результата
     const firstItem = otchetnost[0];
     expect(firstItem).toHaveProperty('date');
     expect(firstItem).toHaveProperty('code');
@@ -201,33 +198,27 @@ describe('paddleocr integration test', () => {
     expect(typeof firstItem.code).toBe('string');
     expect(typeof firstItem.sum).toBe('number');
 
-    // Проверяем, что найдены основные коды
     const foundCodes = new Set(otchetnost.map(item => item.code));
     
-    // Проверяем наличие ключевых кодов
     const keyCodes = ['1110', '1150', '11501', '11502', '1170', '11701', '1100', '1210'];
     for (const code of keyCodes) {
       expect(foundCodes.has(code)).toBe(true);
     }
 
-    // Проверяем суммы для основных кодов с допуском
     for (const [code, expectedSums] of Object.entries(expectedCodes)) {
       const codeItems = otchetnost.filter(item => item.code === code);
       if (codeItems.length > 0) {
         const actualSums = codeItems.map(item => item.sum);
         
-        // Проверяем с допуском ±10%
         for (let i = 0; i < Math.min(expectedSums.length, actualSums.length); i++) {
           const expected = expectedSums[i];
           const actual = actualSums[i];
-          const tolerance = Math.max(expected * 0.1, 1); // 10% или минимум 1
+          const tolerance = Math.max(expected * 0.1, 1);
           
           expect(Math.abs(actual - expected)).toBeLessThanOrEqual(tolerance);
         }
       }
     }
-
-    // Проверяем, что все даты корректные
     const dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
     for (const item of otchetnost) {
       expect(dates).toContain(item.date);
