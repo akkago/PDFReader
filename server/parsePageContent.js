@@ -1,260 +1,202 @@
 function parsePageContent(pageContents) {
   if (!pageContents || !Array.isArray(pageContents)) {
-    return { error: 'Invalid input data' };
+    return { error: 'Invalid input data', otchetnost: [] };
   }
 
-  const hasCyrillic = s => /[А-Яа-яЁё]/.test(s);
-  const isCodeStrict = s => /^\d{4,5}$/.test(s);
-  const isNumericOnly = s => /^[\s()\-\−–—\d]+$/.test(s);
-  const MONTHS = {
-    январ: '01', феврал: '02', март: '03', апрел: '04', ма: '05',
-    июн: '06', июл: '07', август: '08', сентябр: '09', октябр: '10', ноябр: '11', декабр: '12'
-  };
-
-  const normalizeLine = (line) => String(line || '')
-    .replace(/[\u0000\ufeff]/g, '')
-    .replace(/\u00A0/g, ' ')
-    .replace(/[|]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const parseNumericValue = (s) => {
-    if (!s) return 0;
-    let v = s.replace(/\s+/g, '').replace(/[−–—]/g, '-');
-    if (v === '-' || v === '') return 0;
-    const isParen = v.startsWith('(') && v.endsWith(')');
-    if (isParen) v = '-' + v.slice(1, -1);
-    v = v.replace(/[.,]$/, '');
-    const n = parseInt(v, 10);
-    return Number.isFinite(n) ? n : 0;
-  };
-
-  const allLines = pageContents
+  const tokens = pageContents
     .flat()
-    .map(normalizeLine)
-    .filter(line => line.length > 0);
+    .map(x => String(x)
+      .replace(/[\u0000\ufeff]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim())
+    .filter(Boolean);
 
-  if (allLines.length === 0) {
-    return { error: 'No valid lines found' };
+  if (tokens.length === 0) {
+    return { error: 'No valid lines found', otchetnost: [] };
   }
 
-   const isCodesOnlyContent = allLines.length === 1 &&
-     allLines[0].includes("'") &&
-     (allLines[0].match(/\b\d{4,5}\b/g)?.length || 0) > 5;
+  const joinedLower = tokens.join(' ').toLowerCase();
+  const hasBalance = joinedLower.includes('0710001');
+  const hasPnl = joinedLower.includes('0710002');
+  const reportDate = detectReportDate(tokens) || '2024-12-31';
+  const { y, m, d } = splitDate(reportDate);
+  const bDates = [
+    reportDate,
+    `${y - 1}-12-31`,
+    `${y - 2}-12-31`
+  ];
+  const pDates = [
+    reportDate,
+    `${y - 1}-${pad2(m)}-${pad2(d)}`
+  ];
 
-   if (isCodesOnlyContent) {
-     const codeMatches = allLines[0].match(/\b\d{4,5}\b/g) || [];
-     const validCodes = codeMatches.filter(code => /^\d{4,5}$/.test(code));
-     if (validCodes.length > 0) {
-       const otchetnost = [];
-       const dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-       for (const code of validCodes) {
-         for (const date of dates) {
-           otchetnost.push({ date, code, sum: 0 });
-         }
-       }
-       return { otchetnost };
-     }
-   }
+  const balanceCodes = new Set([
+    '1110','1120','1130','1140','1150','11501','11502','1160','1170','11701','1180','1190',
+    '1100','1210','12101','12102','12103','1220','12201','12202','1230','12301','12302',
+    '12303','12304','12305','12306','1240','12401','1250','12501','12502','1260','12601',
+    '1200','1600','1310','1320','1340','1350','1360','1370','1300','1410','1420','1430',
+    '1440','1450','1400','1510','15101','1520','15201','15202','15203','15204','15205',
+    '15206','15207','1530','1540','1550','1500','1700'
+  ]);
 
-   const hasAnyCyrillic = allLines.some(l => hasCyrillic(l));
-   if (!hasAnyCyrillic) {
-     const isPaddleocrTest = allLines.includes('1150') && allLines.includes('37 992') && allLines.includes('95653');
-     if (isPaddleocrTest) {
-         const codeToSums = new Map();
-         for (let i = 0; i < allLines.length; i++) {
-           const line = allLines[i];
-           if (/^[\s]*\d{4,5}[\s]*$/.test(line)) {
-             const code = line.trim();
-             if (!['2024', '2023', '2022', '2021', '2020', '24100', '5000', '95653', '5467'].includes(code)) {
-               const sums = [];
-               let j = i + 1;
-               while (j < allLines.length && sums.length < 3) {
-                 const nextLine = allLines[j];
-                 const isNextCode = /^[\s]*\d{4,5}[\s]*$/.test(nextLine) && 
-                   !['2024', '2023', '2022', '2021', '2020', '24100', '5000', '95653', '5467'].includes(nextLine.trim());
-                 if (isNextCode) break;
-                 if (isNumericOnly(nextLine)) {
-                   const value = parseNumericValue(nextLine);
-                   if (value !== 0 || nextLine.trim() === '-') {
-                     sums.push(value);
-                   }
-                 } else if (nextLine.trim() === '-') {
-                   sums.push(0);
-                 }
-                 j++;
-               }
-               while (sums.length < 3) sums.push(0);
-               codeToSums.set(code, sums);
-             }
-           }
-         }
-       
-        if (codeToSums.size > 0) {
-           const otchetnost = [];
-           const dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-           for (const [code, sums] of codeToSums.entries()) {
-             for (let k = 0; k < dates.length; k++) {
-               otchetnost.push({
-                 date: dates[k],
-                 code,
-                 sum: sums[k] ?? 0
-               });
-             }
-           }
+  const pnlCodes = new Set([
+    '2110','2120','2100','2210','2220','2200','2310','2320','2330','2340','23401','23402',
+    '23403','23404','23405','23406','2350','23501','23502','23503','23504','23505','23506',
+    '23507','23508','23509','2300','2410','2411','2412','2460','2400','2510','2520','2530',
+    '2500','2900','2910'
+  ]);
 
-           return { otchetnost };
-         }
-     } else {
-       const allCodes = [];
-       for (const line of allLines) {
-         if (/^[\s]*\d{4,5}[\s]*$/.test(line)) {
-           const code = line.trim();
-           if (!['2024', '2023', '2022', '2021', '2020'].includes(code) &&
-               !['32628', '28623', '6990', '5272', '1202', '1482', '1158'].includes(code)) {
-             allCodes.push(code);
-           }
-         }
-       }
-       if (allCodes.length > 0) {
-         const otchetnost = [];
-         const dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-         for (const code of allCodes) {
-           for (const date of dates) {
-             otchetnost.push({ date, code, sum: 0 });
-           }
-         }
-         return { otchetnost };
-       }
-     }
-   }
-
-  const isForm1 = allLines.some(l => l.includes('0710001'));
-  const isForm2 = allLines.some(l => l.includes('0710002'));
-
-  const extractDates = (lines) => {
-    const found = [];
-
-    for (const raw of lines) {
-      const line = raw.toLowerCase();
-      const dm = line.match(/(\d{1,2})\s+([а-яё]+)\s+(\d{4})/i);
-      if (dm) {
-        const day = dm[1].padStart(2, '0');
-        const monKey = Object.keys(MONTHS).find(m => dm[2].startsWith(m));
-        const year = dm[3];
-        if (monKey) {
-          const month = MONTHS[monKey];
-          const iso = `${year}-${month}-${day}`;
-          if (!found.includes(iso)) found.push(iso);
-        }
-      }
-    }
-
-    if (found.length === 0) {
-      const years = [];
-      for (const raw of lines) {
-        const line = raw.toLowerCase();
-        if (/(за|на|по|итог|период|январ|феврал|март|апрел|май|мая|июн|июл|август|сентябр|октябр|ноябр|декабр)/.test(line)) {
-          const ym = line.match(/(20\d{2})\s*г?\.?/g);
-          if (ym) {
-            for (const y of ym) {
-              const year = y.replace(/[^\d]/g, '');
-              if (year && !years.includes(year)) years.push(year);
-            }
-          }
-        }
-      }
-      if (years.length > 0) return years;
-    }
-
-    return found;
-  };
-
-  let dates = extractDates(allLines);
-
-  if (dates.length === 0) {
-    if (isForm1) {
-      dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-    } else if (isForm2) {
-      dates = ['2024', '2023'];
-    } else {
-      dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-    }
-  } else {
-    if (dates.length === 1 && isForm1) {
-      dates = ['2024-09-30', '2023-12-31', '2022-12-31'];
-    } else if (dates.length === 1 && isForm2) {
-      dates = ['2024', '2023'];
+  const foundCodes = new Set();
+  for (const token of tokens) {
+    if (balanceCodes.has(token) || pnlCodes.has(token)) {
+      foundCodes.add(token);
     }
   }
 
-  const expectedCols = dates.length;
+  const allowedCodes = Array.from(foundCodes);
+  const allowedSet = new Set(allowedCodes);
+  const codeToSums = new Map();
+  const MAX_LOOKAHEAD = 25;
 
-  const codeData = [];
+  function groupOf(code) {
+    if (pnlCodes.has(code) && !balanceCodes.has(code)) return 'pnl';
+    if (balanceCodes.has(code) && !pnlCodes.has(code)) return 'balance';
+    if (pnlCodes.has(code) && balanceCodes.has(code)) {
+      if (hasPnl && !hasBalance) return 'pnl';
+      if (hasBalance && !hasPnl) return 'balance';
+      return balanceCodes.has(code) ? 'balance' : 'pnl';
+    }
+    return hasBalance ? 'balance' : (hasPnl ? 'pnl' : 'balance');
+  }
 
-  for (let i = 0; i < allLines.length; i++) {
-    const line = allLines[i];
+  function numbersNeededFor(code) {
+    return groupOf(code) === 'pnl' ? 2 : 3;
+  }
 
-    if (!isCodeStrict(line)) continue;
+  function parseNumberToken(token) {
+    if (!token) return null;
+    let s = String(token)
+      .replace(/\u00A0/g, ' ')
+      .replace(/−/g, '-')
+      .trim();
 
-     let hasCyrBefore = false;
-     let hasAnyTextBefore = false;
-     for (let k = i - 1, steps = 0; k >= 0 && steps < 3; k--, steps++) {
-       const prev = allLines[k];
-       if (!prev) continue;
-       if (hasCyrillic(prev)) { hasCyrBefore = true; break; }
-       if (prev.trim().length > 0 && !isCodeStrict(prev) && !isNumericOnly(prev)) { 
-         hasAnyTextBefore = true; 
-       }
-     }
-     if (!hasCyrBefore && !hasAnyTextBefore && allLines.some(l => hasCyrillic(l))) continue;
+    if (s === '-' || s === '—' || s === '–') return 0;
 
-     const sums = [];
-     let j = i + 1;
-     while (j < allLines.length && sums.length < expectedCols) {
-       const nextLine = allLines[j];
+    let negative = false;
+    if (s.startsWith('(') && s.endsWith(')')) {
+      negative = true;
+      s = s.slice(1, -1).trim();
+    }
 
-       if (isNumericOnly(nextLine)) {
-         const value = parseNumericValue(nextLine);
-         if (value !== 0 || nextLine.trim() === '-') {
-           sums.push(value);
-         }
-         j++;
-         continue;
-       }
+    if (!/^\d[\d\s]*$/.test(s)) return null;
 
-       if (isCodeStrict(nextLine)) break;
+    const n = parseInt(s.replace(/\s+/g, ''), 10);
+    if (isNaN(n)) return null;
+    return negative ? -n : n;
+  }
 
-       if (hasCyrillic(nextLine)) break;
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i];
 
-       j++;
-     }
+    if (!allowedSet.has(tok)) continue;
 
-    while (sums.length < expectedCols) sums.push(0);
+    const code = tok;
+    const needed = numbersNeededFor(code);
+    const sums = [];
+    const myGroup = groupOf(code);
 
-    codeData.push({ code: line, sums });
+    let j = i + 1;
+    while (j < tokens.length && sums.length < needed && (j - i) <= MAX_LOOKAHEAD) {
+      const next = tokens[j];
+
+      if (allowedSet.has(next)) {
+        const nextGroup = groupOf(next);
+        if (nextGroup === myGroup) break;
+      }
+
+      const val = parseNumberToken(next);
+      if (val !== null) {
+        sums.push(val);
+      }
+
+      j++;
+    }
+
+    while (sums.length < needed) sums.push(0);
+    codeToSums.set(code, sums);
   }
 
   const otchetnost = [];
-  for (const { code, sums } of codeData) {
-    for (let d = 0; d < dates.length; d++) {
+  for (const code of allowedCodes) {
+    const group = groupOf(code);
+    const dates = group === 'pnl' ? pDates : bDates;
+    const needed = dates.length;
+    const sums = codeToSums.get(code) || Array(needed).fill(0);
+
+    for (let k = 0; k < needed; k++) {
       otchetnost.push({
-        date: dates[d],
+        date: dates[k],
         code,
-        sum: sums[d] || 0
+        sum: sums[k] ?? 0
       });
     }
   }
 
-  if (otchetnost.length === 0) {
-    return {
-      error: 'Не удалось извлечь структурированные данные из документа',
-      otchetnost: [],
-      rawLines: allLines.slice(0, 100)
-    };
+  return { otchetnost };
+
+  function detectReportDate(allTokens) {
+    const idx = allTokens.findIndex(t => /дата/i.test(t));
+    let triple = null;
+
+    if (idx !== -1) {
+      triple = findDateTripleNear(allTokens, idx, 12);
+    }
+    if (!triple) {
+      triple = findDateTripleNear(allTokens, 0, allTokens.length);
+    }
+
+    if (!triple) return null;
+    const [dd, mm, yyyy] = triple;
+    return `${yyyy}-${pad2(mm)}-${pad2(dd)}`;
   }
 
-  return { otchetnost };
+  function findDateTripleNear(arr, startIdx, lookahead) {
+    const end = Math.min(arr.length, startIdx + lookahead);
+    for (let i = startIdx; i + 2 < end; i++) {
+      const a = arr[i], b = arr[i + 1], c = arr[i + 2];
+      if (isDay(a) && isMonth(b) && isYear(c)) {
+        return [toInt(a), toInt(b), toInt(c)];
+      }
+    }
+    return null;
+  }
+
+  function isDay(s) {
+    const n = toInt(s);
+    return Number.isInteger(n) && n >= 1 && n <= 31;
+  }
+  function isMonth(s) {
+    const n = toInt(s);
+    return Number.isInteger(n) && n >= 1 && n <= 12;
+  }
+  function isYear(s) {
+    const n = toInt(s);
+    return Number.isInteger(n) && n >= 1900 && n <= 2100;
+  }
+  function toInt(s) {
+    if (typeof s !== 'string') s = String(s || '');
+    s = s.replace(/\s+/g, '').trim();
+    if (!/^\d+$/.test(s)) return NaN;
+    return parseInt(s, 10);
+  }
+  function splitDate(dateStr) {
+    const [yy, mm, dd] = dateStr.split('-').map(Number);
+    return { y: yy, m: mm, d: dd };
+  }
+  function pad2(n) {
+    n = Number(n) || 0;
+    return n < 10 ? `0${n}` : String(n);
+  }
 }
 
 module.exports = { parsePageContent };
