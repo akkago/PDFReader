@@ -57,7 +57,7 @@ describe('parsePageContent', () => {
     expect(foundCodes.has('2400')).toBe(true);
     
     const code2110 = result.otchetnost.filter(r => r.code === '2110');
-    expect(code2110).toHaveLength(2); // P&L имеет только 2 даты
+    expect(code2110).toHaveLength(2);
     expect(code2110.find(r => r.date === '2024-09-30').sum).toBe(1327023);
     expect(code2110.find(r => r.date === '2023-09-30').sum).toBe(1309986);
     

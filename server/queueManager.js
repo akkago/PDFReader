@@ -14,7 +14,6 @@ class QueueManager {
       if (!exists) {
         await fs.writeJson(this.queueFile, {}, { spaces: 2 });
       } else {
-        // Проверяем, что существующий файл содержит валидный JSON
         try {
           await fs.readJson(this.queueFile);
         } catch (jsonError) {
@@ -54,10 +53,8 @@ class QueueManager {
           return {};
         }
         
-        // Попытка восстановить поврежденный JSON
         if (trimmedContent.startsWith('{') && !trimmedContent.endsWith('}')) {
           console.log('JSON обрывается, пытаюсь восстановить');
-          // Находим последнюю закрывающую скобку
           let braceCount = 0;
           let lastValidPosition = -1;
           
@@ -86,13 +83,11 @@ class QueueManager {
           }
         }
         
-        // Если файл поврежден, создаем новый
         console.log('Файл поврежден, создаю новый');
         await fs.writeJson(this.queueFile, {}, { spaces: 2 });
         return {};
       } catch (readError) {
         console.error('Ошибка чтения файла:', readError);
-        // Создаем новый файл если не можем прочитать
         await fs.writeJson(this.queueFile, {}, { spaces: 2 });
         return {};
       }
@@ -101,24 +96,18 @@ class QueueManager {
 
   async saveQueue(queue) {
     try {
-      // Создаем временный файл для атомарной записи
       const tempFile = this.queueFile + '.tmp';
       
-      // Сначала записываем во временный файл
       await fs.writeJson(tempFile, queue, { spaces: 2 });
       
-      // Проверяем, что временный файл содержит валидный JSON
       await fs.readJson(tempFile);
       
-      // Атомарно заменяем основной файл
       await fs.move(tempFile, this.queueFile, { overwrite: true });
     } catch (error) {
       console.error('Ошибка сохранения очереди:', error);
-      // Удаляем временный файл если он существует
       try {
         await fs.remove(this.queueFile + '.tmp');
       } catch (removeError) {
-        // Игнорируем ошибку удаления
       }
     }
   }
@@ -127,10 +116,8 @@ class QueueManager {
     try {
       const queue = await this.loadQueue();
       
-      // Ограничиваем размер данных для предотвращения повреждения файла
       const limitedData = { ...requestData };
       
-      // Если content слишком большой, сохраняем только метаданные
       if (limitedData.content && JSON.stringify(limitedData.content).length > 1000000) {
         console.log('Content слишком большой, сохраняю только метаданные');
         limitedData.content = {
