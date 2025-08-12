@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const PDFConverter = require('./pdf-converter');
 const { v4: uuidv4 } = require('uuid');
 const { parsePageContent } = require('./parsePageContent');
+const QueueManager = require('./queueManager');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,7 +21,11 @@ const imagesDir = path.join(__dirname, '../uploads/images');
 fs.ensureDirSync(uploadsDir);
 fs.ensureDirSync(imagesDir);
 
-const requests = new Map();
+const queueManager = new QueueManager();
+
+setInterval(async () => {
+  await queueManager.cleanupOldRequests(24);
+}, 60 * 60 * 1000);
 
 const SUPPORTED_TYPES = ['otchetnost'];
 const storage = multer.diskStorage({
@@ -108,7 +113,7 @@ function validateFileType(fileType, content) {
 
 async function processRequest(requestId, filePath, fileType) {
   try {
-    requests.set(requestId, { status: 'in_progress' });
+    await queueManager.setRequest(requestId, { status: 'in_progress' });
 
     const pdfName = path.basename(filePath);
     
@@ -156,7 +161,7 @@ async function processRequest(requestId, filePath, fileType) {
     
     const validation = validateFileType(fileType, allContent);
     if (!validation.valid) {
-      requests.set(requestId, { 
+      await queueManager.setRequest(requestId, { 
         status: 'failed', 
         error: validation.error, 
         error_msg: validation.error_msg 
@@ -167,7 +172,7 @@ async function processRequest(requestId, filePath, fileType) {
     const allPageContents = results.map(result => result.content || []);
     const processedData = parsePageContent(allPageContents);
 
-    requests.set(requestId, { 
+    await queueManager.setRequest(requestId, { 
       status: 'complete', 
       content: processedData 
     });
@@ -183,7 +188,7 @@ async function processRequest(requestId, filePath, fileType) {
 
   } catch (error) {
     console.error('Ошибка обработки заявки:', error);
-    requests.set(requestId, { 
+    await queueManager.setRequest(requestId, { 
       status: 'failed', 
       error: 'processing_error', 
       error_msg: error.message 
@@ -221,11 +226,11 @@ app.post('/api/parse', (req, res) => {
 
       const requestId = uuidv4();
       
-      requests.set(requestId, { 
+      await queueManager.setRequest(requestId, { 
         status: 'in_progress',
         filePath: req.file.path,
         fileType: type,
-        createdAt: new Date()
+        createdAt: new Date().toISOString()
       });
 
       processRequest(requestId, req.file.path, type);
@@ -244,18 +249,84 @@ app.post('/api/parse', (req, res) => {
   });
 });
 
-app.get('/api/result/:id', (req, res) => {
+app.get('/api/result/:id', async (req, res) => {
   const requestId = req.params.id;
   
-  if (!requests.has(requestId)) {
+  const request = await queueManager.getRequest(requestId);
+
+  if (!request) {
     return res.status(404).json({ 
       error: 'not_found', 
       error_msg: 'Заявка не найдена' 
     });
   }
 
-  const request = requests.get(requestId);
   res.json(request);
+});
+
+app.get('/api/queue/stats', async (req, res) => {
+  try {
+    const stats = await queueManager.getQueueStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Ошибка получения статистики очереди:', error);
+    res.status(500).json({ 
+      error: 'Ошибка получения статистики очереди',
+      details: error.message 
+    });
+  }
+});
+
+app.get('/api/queue/requests', async (req, res) => {
+  try {
+    const requests = await queueManager.getAllRequests();
+    res.json(requests);
+  } catch (error) {
+    console.error('Ошибка получения всех запросов:', error);
+    res.status(500).json({ 
+      error: 'Ошибка получения всех запросов',
+      details: error.message 
+    });
+  }
+});
+
+app.delete('/api/queue/requests/:id', async (req, res) => {
+  const requestId = req.params.id;
+  
+  try {
+    const deleted = await queueManager.deleteRequest(requestId);
+    if (deleted) {
+      res.json({ message: 'Запрос успешно удален' });
+    } else {
+      res.status(404).json({ 
+        error: 'not_found', 
+        error_msg: 'Запрос не найден' 
+      });
+    }
+  } catch (error) {
+    console.error('Ошибка удаления запроса:', error);
+    res.status(500).json({ 
+      error: 'Ошибка удаления запроса',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/queue/cleanup', async (req, res) => {
+  try {
+    const { maxAgeHours = 24 } = req.body;
+    const cleanedCount = await queueManager.cleanupOldRequests(maxAgeHours);
+    res.json({ 
+      message: `Очищено ${cleanedCount} устаревших запросов`,
+      cleanedCount 
+    });
+  } catch (error) {
+    console.error('Ошибка очистки очереди:', error);
+    res.status(500).json({ 
+      error: 'Ошибка очистки очереди',
+      details: error.message 
+    });
+  }
 });
 
 app.use((error, req, res, next) => {

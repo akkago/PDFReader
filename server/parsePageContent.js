@@ -18,7 +18,9 @@ function parsePageContent(pageContents) {
   const joinedLower = tokens.join(' ').toLowerCase();
   const hasBalance = joinedLower.includes('0710001');
   const hasPnl = joinedLower.includes('0710002');
+
   const reportDate = detectReportDate(tokens) || '2024-12-31';
+
   const { y, m, d } = splitDate(reportDate);
   const bDates = [
     reportDate,
@@ -55,6 +57,7 @@ function parsePageContent(pageContents) {
 
   const allowedCodes = Array.from(foundCodes);
   const allowedSet = new Set(allowedCodes);
+
   const codeToSums = new Map();
   const MAX_LOOKAHEAD = 25;
 
